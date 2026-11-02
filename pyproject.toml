@@ -5,7 +5,9 @@ description = "A customer-support agent with tools over MCP, guardrails, human a
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "pydantic>=2",
+]
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.6"]
