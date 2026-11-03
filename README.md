@@ -6,8 +6,8 @@ out-of-scope requests, human approval before refunds and cancellations, tracing,
 evaluation that checks the **final state of the database** rather than the wording of
 the answer.
 
-> **Status: work in progress.** Only the foundations exist so far (step 0). Sections
-> below describe what is built, not what is planned.
+> **Status: work in progress.** Built so far: the fictional shop, read-only access, and a
+> first tool served over MCP. Sections below describe what is built, not what is planned.
 
 ## The shop
 
@@ -21,6 +21,29 @@ memorised by the model, and the evaluation would then measure recall instead of 
   cancellations, privacy, scope).
 - `src/reliable_tool_agent/db.py` opens the database read-only, with two independent
   locks (`mode=ro` and `PRAGMA query_only`).
+
+## Tools over MCP
+
+The tools live in `tools.py` as plain Python functions with Pydantic outputs, and
+`mcp_server.py` exposes them through the Model Context Protocol, so any MCP client can
+use them.
+
+- **The customer identity never comes from the model.** The application starts the
+  server for one authenticated customer (`--customer-id`); no tool schema contains a
+  customer id. Another customer's order gets the same "not found" answer as a missing
+  one, so its existence is not revealed.
+- **Expected failures reach the model, crashes do not.** "Order not found" is raised as an
+  MCP `ToolError`, whose message the model receives so it can recover. Any other exception
+  is treated as a crash: the client gets a generic message and the details stay in the
+  server log.
+
+| Tool | Arguments | Returns |
+|---|---|---|
+| `get_order` | `order_id` | status, dates, items and amounts (integer cents) |
+
+```bash
+uv run python -m reliable_tool_agent.mcp_server --customer-id C0001   # stdio server
+```
 
 ## Setup
 
@@ -36,6 +59,8 @@ uv run pytest
 src/reliable_tool_agent/
   world.py        schema and deterministic data generator of the fictional shop
   db.py           read-only database access
+  tools.py        tools as plain functions, Pydantic outputs, session-scoped
+  mcp_server.py   MCP server exposing the tools (stdio)
 scripts/          build_db.py
 data/policies/    shop policies (Markdown)
 tests/            unit tests (no model loaded)
