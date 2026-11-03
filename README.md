@@ -9,6 +9,12 @@ the answer.
 > **Status: work in progress.** Built so far: the fictional shop, read-only access, and
 > three read-only tools served over MCP. Sections below describe what is built, not what is planned.
 
+![Architecture](docs/architecture.png)
+
+*Solid, coloured boxes are built; dashed grey boxes are planned. The customer identity
+travels from the authenticated session straight to the tool server, never through the
+model. Regenerate with `uv run python scripts/make_architecture_diagram.py`.*
+
 ## The shop
 
 "Brindle Home" is invented on purpose: a well-known sample database could have been
@@ -73,7 +79,8 @@ src/reliable_tool_agent/
   db.py           read-only database access
   tools.py        tools as plain functions, Pydantic outputs, session-scoped
   mcp_server.py   MCP server exposing the tools (stdio)
-scripts/          build_db.py
+scripts/          build_db.py, make_architecture_diagram.py
+docs/             architecture diagram
 data/policies/    shop policies (Markdown)
 tests/            unit tests (no model loaded)
 ```
