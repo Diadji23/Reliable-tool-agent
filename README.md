@@ -9,6 +9,12 @@ the answer.
 > **Status: work in progress.** Built so far: the fictional shop, read-only access, and
 > three read-only tools served over MCP. Sections below describe what is built, not what is planned.
 
+![Architecture](docs/architecture.png)
+
+*Solid, coloured boxes are built; dashed grey boxes are planned. The customer identity
+travels from the authenticated session straight to the tool server, never through the
+model. Source: [`docs/architecture.tex`](docs/architecture.tex) (TikZ).*
+
 ## The shop
 
 "Brindle Home" is invented on purpose: a well-known sample database could have been
@@ -74,6 +80,7 @@ src/reliable_tool_agent/
   tools.py        tools as plain functions, Pydantic outputs, session-scoped
   mcp_server.py   MCP server exposing the tools (stdio)
 scripts/          build_db.py
+docs/             architecture diagram (TikZ source + PNG)
 data/policies/    shop policies (Markdown)
 tests/            unit tests (no model loaded)
 ```

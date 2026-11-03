@@ -9,3 +9,7 @@ data/*.db
 # Model weights: never in git.
 models/
 *.gguf
+# LaTeX build files: only docs/*.tex (source) and the PNG used by the README are versioned.
+docs/*.aux
+docs/*.log
+docs/*.pdf
