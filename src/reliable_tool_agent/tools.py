@@ -16,6 +16,10 @@ from pydantic import BaseModel
 
 from reliable_tool_agent.db import DEFAULT_DB_PATH, connect_readonly
 
+POLICIES_DIR = Path(__file__).resolve().parents[2] / "data" / "policies"
+
+OrderStatus = Literal["processing", "shipped", "delivered", "cancelled"]
+
 
 @dataclass(frozen=True)
 class Session:
@@ -23,6 +27,7 @@ class Session:
 
     customer_id: str
     db_path: Path = DEFAULT_DB_PATH
+    policies_dir: Path = POLICIES_DIR
 
 
 class NotFoundError(LookupError):
@@ -39,7 +44,7 @@ class OrderItem(BaseModel):
 
 class Order(BaseModel):
     id: str
-    status: Literal["processing", "shipped", "delivered", "cancelled"]
+    status: OrderStatus
     ordered_at: date
     delivered_at: date | None
     shipping_cents: int
@@ -76,3 +81,99 @@ def get_order(session: Session, order_id: str) -> Order:
         **{k: row[k] for k in Order.model_fields if k != "items"},
         items=[OrderItem(**dict(item)) for item in items],
     )
+
+
+class OrderSummary(BaseModel):
+    id: str
+    status: OrderStatus
+    ordered_at: date
+    total_cents: int
+    n_items: int
+
+
+def list_my_orders(session: Session, status: OrderStatus | None = None) -> list[OrderSummary]:
+    """The session customer's orders, newest first, optionally filtered by status."""
+    with connect_readonly(session.db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT o.id, o.status, o.ordered_at, o.total_cents, SUM(i.quantity) AS n_items
+            FROM orders o JOIN order_items i ON i.order_id = o.id
+            WHERE o.customer_id = ? AND (? IS NULL OR o.status = ?)
+            GROUP BY o.id ORDER BY o.ordered_at DESC, o.id DESC
+            """,
+            (session.customer_id, status, status),
+        ).fetchall()
+    return [OrderSummary(**dict(r)) for r in rows]
+
+
+class PolicyRule(BaseModel):
+    policy: str  # file stem, e.g. "returns"
+    rule: int  # rule number inside the policy (1, 2, ...); 0 = text before the first rule
+    text: str
+
+
+# Words too common to say anything about relevance.
+_STOPWORDS = set(
+    "a an and are be by can do does for from how i if in is it its my of on or the to "
+    "what when where which who why with you your".split()
+)
+
+
+def _stem(word: str) -> str:
+    """Crude stemming: returns/returned/returning -> return, cancelled -> cancel.
+
+    Only needs to map the forms used in our short policies to the same key; a real
+    stemmer (Porter, Snowball) would be overkill here.
+    """
+    for suffix in ("ing", "ed", "es", "s", "e"):
+        if word.endswith(suffix) and len(word) - len(suffix) >= 3:
+            word = word[: -len(suffix)]
+            break
+    if len(word) > 3 and word[-1] == word[-2]:  # cancell -> cancel, shipp -> ship
+        word = word[:-1]
+    return word
+
+
+def _words(text: str) -> set[str]:
+    cleaned = "".join(c.lower() if c.isalnum() else " " for c in text)
+    return {_stem(w) for w in cleaned.split() if w not in _STOPWORDS}
+
+
+def _split_rules(policy: str, markdown: str) -> list[PolicyRule]:
+    """One PolicyRule per numbered item ("1. ..."), continuation lines included."""
+    rules: list[PolicyRule] = []
+    number, lines = 0, []
+    for line in markdown.splitlines():
+        if line.startswith("#"):
+            continue
+        head = line.split(".", 1)[0]
+        if head.isdigit() and line[len(head) : len(head) + 2] == ". ":
+            if lines:
+                rules.append(PolicyRule(policy=policy, rule=number, text=" ".join(lines)))
+            number, lines = int(head), [line[len(head) + 2 :].strip()]
+        elif line.strip():
+            lines.append(line.strip())
+    if lines:
+        rules.append(PolicyRule(policy=policy, rule=number, text=" ".join(lines)))
+    return rules
+
+
+def search_policies(session: Session, query: str, k: int = 3) -> list[PolicyRule]:
+    """The k policy rules sharing the most words with `query` (keyword search).
+
+    Deliberately simple: overlap of crudely stemmed words, no synonyms ("send back" does
+    not match "return"). Rules with no word in common are never returned, so an unrelated query
+    gives an empty list instead of irrelevant text.
+    """
+    query_words = _words(query)
+    scored = []
+    for path in sorted(session.policies_dir.glob("*.md")):
+        for rule in _split_rules(path.stem, path.read_text(encoding="utf-8")):
+            # The policy name counts as a word of the rule ("refund" matches refunds.md),
+            # and breaks ties: on equal overlap, rules from the policy the query names
+            # come first instead of whichever file sorts first alphabetically.
+            title = query_words & _words(rule.policy)
+            score = len(query_words & _words(rule.text) | title)
+            if score:
+                scored.append((-score, -len(title), rule.policy, rule.rule, rule))
+    return [rule for *_, rule in sorted(scored)[:k]]

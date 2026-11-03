@@ -35,10 +35,20 @@ async def test_schema_exposes_no_customer_id(shop_db, owner_and_order):
     async with Client(build_server(Session(owner, shop_db))) as client:
         listed = await client.list_tools()
     tools = {t.name: t for t in listed.tools}
-    assert set(tools) == {"get_order"}
+    assert set(tools) == {"get_order", "list_my_orders", "search_policies"}
     schema = tools["get_order"].input_schema
     assert schema["required"] == ["order_id"]
-    assert "customer_id" not in str(schema).lower()
+    for tool in tools.values():
+        assert "customer" not in str(tool.input_schema).lower()
+
+
+async def test_invalid_argument_is_rejected_with_a_reason(shop_db, owner_and_order):
+    """Pydantic checks the model's arguments before the tool runs."""
+    owner, _, _ = owner_and_order
+    async with Client(build_server(Session(owner, shop_db))) as client:
+        result = await client.call_tool("list_my_orders", {"status": "lost"})
+    assert result.is_error
+    assert "delivered" in result.content[0].text  # the allowed values are listed
 
 
 async def test_call_returns_structured_order(shop_db, owner_and_order):

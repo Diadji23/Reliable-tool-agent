@@ -6,8 +6,8 @@ out-of-scope requests, human approval before refunds and cancellations, tracing,
 evaluation that checks the **final state of the database** rather than the wording of
 the answer.
 
-> **Status: work in progress.** Built so far: the fictional shop, read-only access, and a
-> first tool served over MCP. Sections below describe what is built, not what is planned.
+> **Status: work in progress.** Built so far: the fictional shop, read-only access, and
+> three read-only tools served over MCP. Sections below describe what is built, not what is planned.
 
 ## The shop
 
@@ -40,6 +40,18 @@ use them.
 | Tool | Arguments | Returns |
 |---|---|---|
 | `get_order` | `order_id` | status, dates, items and amounts (integer cents) |
+| `list_my_orders` | `status` (optional, one of 4 values) | the customer's orders, newest first |
+| `search_policies` | `query` | up to 3 numbered policy rules, or an empty list |
+
+Arguments are validated by Pydantic before a tool runs: `list_my_orders(status="lost")`
+is rejected with the list of allowed values, so the model can correct itself.
+
+`search_policies` is deliberately simple: overlap of crudely stemmed keywords
+(returning / returned → return), ties broken in favour of the policy the query names.
+It has no notion of synonyms ("send it back" does not find the returns policy; a test
+documents this limit). The policies are short enough (~600 tokens) to fit in the prompt;
+a search tool keeps the prompt small for local models on CPU, where every prompt token is
+paid again at each step. Which option works better is a question for the evaluation.
 
 ```bash
 uv run python -m reliable_tool_agent.mcp_server --customer-id C0001   # stdio server

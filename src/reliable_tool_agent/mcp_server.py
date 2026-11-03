@@ -18,7 +18,14 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from reliable_tool_agent import tools
 from reliable_tool_agent.db import DEFAULT_DB_PATH
-from reliable_tool_agent.tools import NotFoundError, Order, Session
+from reliable_tool_agent.tools import (
+    NotFoundError,
+    Order,
+    OrderStatus,
+    OrderSummary,
+    PolicyRule,
+    Session,
+)
 
 
 def build_server(session: Session) -> MCPServer:
@@ -42,6 +49,25 @@ def build_server(session: Session) -> MCPServer:
             # tell the customer or fix the order number. Any other exception is a crash
             # and the SDK keeps its text on the server.
             raise ToolError(str(exc)) from exc
+
+    @server.tool()
+    def list_my_orders(status: OrderStatus | None = None) -> list[OrderSummary]:
+        """List the current customer's orders, newest first.
+
+        Use it when the customer does not give an order number. Optionally filter by
+        status: processing, shipped, delivered or cancelled. Amounts are integer cents.
+        """
+        return tools.list_my_orders(session, status)
+
+    @server.tool()
+    def search_policies(query: str) -> list[PolicyRule]:
+        """Search the shop policies (returns, refunds, cancellations, privacy, scope).
+
+        Returns up to 3 numbered rules by keyword match, or an empty list if nothing
+        matches. Use plain words from the topic, e.g. "return final sale damaged".
+        Always check the policy before telling a customer what is allowed.
+        """
+        return tools.search_policies(session, query)
 
     return server
 

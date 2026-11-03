@@ -7,7 +7,13 @@ from datetime import date
 
 import pytest
 
-from reliable_tool_agent.tools import NotFoundError, Session, get_order
+from reliable_tool_agent.tools import (
+    NotFoundError,
+    Session,
+    get_order,
+    list_my_orders,
+    search_policies,
+)
 
 
 @pytest.fixture(scope="module")
@@ -51,3 +57,58 @@ def test_unknown_order_is_not_found(shop_db, two_customers):
     a, _, _ = two_customers
     with pytest.raises(NotFoundError):
         get_order(Session(a, shop_db), "O99999")
+
+
+# --- list_my_orders -------------------------------------------------------------------
+
+
+def test_list_my_orders_returns_only_own_orders_newest_first(shop_db, two_customers):
+    a, _, _ = two_customers
+    orders = list_my_orders(Session(a, shop_db))
+    conn = sqlite3.connect(shop_db)
+    own = {r[0] for r in conn.execute("SELECT id FROM orders WHERE customer_id = ?", (a,))}
+    assert {o.id for o in orders} == own
+    dates = [o.ordered_at for o in orders]
+    assert dates == sorted(dates, reverse=True)
+
+
+def test_list_my_orders_status_filter(shop_db):
+    conn = sqlite3.connect(shop_db)
+    (cid,) = conn.execute(
+        "SELECT customer_id FROM orders GROUP BY customer_id "
+        "HAVING COUNT(DISTINCT status) >= 2 ORDER BY customer_id LIMIT 1"
+    ).fetchone()
+    session = Session(cid, shop_db)
+    everything = list_my_orders(session)
+    delivered = list_my_orders(session, "delivered")
+    assert delivered and all(o.status == "delivered" for o in delivered)
+    assert len(delivered) < len(everything)
+
+
+# --- search_policies ------------------------------------------------------------------
+
+
+def _top(query: str, shop_db) -> tuple[str, int]:
+    rule = search_policies(Session("C0001", shop_db), query)[0]
+    return rule.policy, rule.rule
+
+
+def test_search_finds_the_exact_rule(shop_db):
+    assert _top("Can I return a final sale item that arrived damaged?", shop_db) == ("returns", 3)
+
+
+def test_search_matches_word_forms(shop_db):
+    # "returning" must match "returned"; "refund" must match "refunds" / "refunded".
+    assert _top("returning a lamp", shop_db)[0] == "returns"
+    assert _top("How do I get a refund?", shop_db)[0] == "refunds"
+
+
+def test_search_unrelated_query_returns_nothing(shop_db):
+    assert search_policies(Session("C0001", shop_db), "what is the capital of France") == []
+
+
+def test_search_known_limit_no_synonyms(shop_db):
+    """Documented limit of keyword search: 'send it back' does not find the returns
+    policy (no shared word). If this test starts failing, the search got smarter."""
+    results = search_policies(Session("C0001", shop_db), "send it back")
+    assert all(r.policy != "returns" for r in results)
