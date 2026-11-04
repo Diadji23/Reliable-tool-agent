@@ -41,6 +41,9 @@ class ToolCall:
 class AssistantTurn:
     content: str | None
     tool_calls: list[ToolCall] = field(default_factory=list)
+    # Token counts reported by the server ({"prompt_tokens": ..., "completion_tokens": ...}),
+    # kept for cost and latency accounting; None for the scripted model.
+    usage: dict[str, int] | None = None
 
 
 class ChatModel(Protocol):
