@@ -6,8 +6,9 @@ out-of-scope requests, human approval before refunds and cancellations, tracing,
 evaluation that checks the **final state of the database** rather than the wording of
 the answer.
 
-> **Status: work in progress.** Built so far: the fictional shop, read-only access, and
-> three read-only tools served over MCP. Sections below describe what is built, not what is planned.
+> **Status: work in progress.** Built so far: the fictional shop, read-only access,
+> three read-only tools served over MCP, and a hand-written agent loop tested with a scripted
+> model (no LLM plugged in yet). Sections below describe what is built, not what is planned.
 
 ![Architecture](docs/architecture.png)
 
@@ -63,6 +64,19 @@ paid again at each step. Which option works better is a question for the evaluat
 uv run python -m reliable_tool_agent.mcp_server --customer-id C0001   # stdio server
 ```
 
+## Agent loop
+
+`agent_loop.py` is a deliberately minimal loop, written without a framework: ask the model
+with the tool descriptions; if it requests tool calls, run them through the MCP client and
+append each result as a `tool` message; stop when it answers with text, or after
+`max_steps` model calls. Messages use the OpenAI chat-completions format, which both
+llama.cpp's `llama-server` and most hosted APIs accept.
+
+Every mistake the model can make (unknown tool, invalid JSON, arguments of the wrong
+shape or value, an order that does not exist) is returned to it as text so it can
+correct itself; only bugs on our side raise. Tests drive the loop with a scripted model
+(`fake_model.py`) against the real MCP server.
+
 ## Setup
 
 ```bash
@@ -79,6 +93,8 @@ src/reliable_tool_agent/
   db.py           read-only database access
   tools.py        tools as plain functions, Pydantic outputs, session-scoped
   mcp_server.py   MCP server exposing the tools (stdio)
+  agent_loop.py   hand-written agent loop (model <-> MCP tools)
+  fake_model.py   scripted model for tests
 scripts/          build_db.py
 docs/             architecture diagram (TikZ source + PNG)
 data/policies/    shop policies (Markdown)
