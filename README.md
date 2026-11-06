@@ -8,7 +8,8 @@ the answer.
 
 > **Status: work in progress.** Built so far: the fictional shop, read-only access,
 > three read-only tools served over MCP, and a hand-written agent loop tested with a scripted
-> model (no LLM plugged in yet). Sections below describe what is built, not what is planned.
+> model and run once with a local model ([experiment 01](experiments/01-first-real-run/)).
+> Sections below describe what is built, not what is planned.
 
 ![Architecture](docs/architecture.png)
 
@@ -77,6 +78,12 @@ shape or value, an order that does not exist) is returned to it as text so it ca
 correct itself; only bugs on our side raise. Tests drive the loop with a scripted model
 (`fake_model.py`) against the real MCP server.
 
+**First real run** ([experiment 01](experiments/01-first-real-run/README.md)): with
+Qwen3.5-4B (Q4_K_M) on a 4-core laptop CPU, 8 of 9 smoke-test questions were answered
+correctly; the miss was a misleading suggestion that no keyword check caught. Median
+20–41 s per question. llama-server's prompt cache cuts the total time by 3.1x (measured),
+which is why the system prompt and tool list stay fixed at the start of the prompt.
+
 ## Setup
 
 ```bash
@@ -95,7 +102,10 @@ src/reliable_tool_agent/
   mcp_server.py   MCP server exposing the tools (stdio)
   agent_loop.py   hand-written agent loop (model <-> MCP tools)
   fake_model.py   scripted model for tests
-scripts/          build_db.py
+  llama_server.py ChatModel for llama-server (OpenAI-compatible API)
+  prompts.py      system prompt
+scripts/          build_db.py, first_run.py
+experiments/      one folder per experiment: hypotheses, protocol, traces, results
 docs/             architecture diagram (TikZ source + PNG)
 data/policies/    shop policies (Markdown)
 tests/            unit tests (no model loaded)
