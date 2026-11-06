@@ -1,0 +1,73 @@
+[
+ {
+  "type": "function",
+  "function": {
+   "name": "get_order",
+   "description": "Get one of the current customer's orders: status, dates, items and amounts.\n\n        Amounts are integer cents (4900 = 49.00 EUR). Fails with 'No order ... found'\n        if the order does not exist for this customer.\n        ",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "order_id": {
+      "title": "Order Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "order_id"
+    ],
+    "title": "get_orderArguments"
+   }
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "list_my_orders",
+   "description": "List the current customer's orders, newest first.\n\n        Use it when the customer does not give an order number. Optionally filter by\n        status: processing, shipped, delivered or cancelled. Amounts are integer cents.\n        ",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "status": {
+      "anyOf": [
+       {
+        "enum": [
+         "processing",
+         "shipped",
+         "delivered",
+         "cancelled"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Status"
+     }
+    },
+    "title": "list_my_ordersArguments"
+   }
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "search_policies",
+   "description": "Search the shop policies (returns, refunds, cancellations, privacy, scope).\n\n        Returns up to 3 numbered rules by keyword match, or an empty list if nothing\n        matches. Use plain words from the topic, e.g. \"return final sale damaged\".\n        Always check the policy before telling a customer what is allowed.\n        ",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "query": {
+      "title": "Query",
+      "type": "string"
+     }
+    },
+    "required": [
+     "query"
+    ],
+    "title": "search_policiesArguments"
+   }
+  }
+ }
+]
