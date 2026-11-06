@@ -126,7 +126,7 @@ async def run_agent(
 
     for step in range(1, max_steps + 1):
         turn = await model.complete(messages, tools)
-        messages.append(_assistant_message(turn))
+        messages.append(assistant_message(turn))
 
         if not turn.tool_calls:  # text only: the model has answered
             return AgentResult(turn.content, "answer", step, messages)
@@ -140,7 +140,8 @@ async def run_agent(
     return AgentResult(None, "max_steps", max_steps, messages)
 
 
-def _assistant_message(turn: AssistantTurn) -> Message:
+def assistant_message(turn: AssistantTurn) -> Message:
+    """The turn as an OpenAI-format `assistant` message, to append to the conversation."""
     message: Message = {"role": "assistant", "content": turn.content}
     if turn.tool_calls:
         message["tool_calls"] = [
