@@ -8,7 +8,8 @@ the answer.
 
 > **Status: work in progress.** Built so far: the fictional shop, read-only access,
 > three read-only tools served over MCP, and a hand-written agent loop tested with a scripted
-> model and run once with a local model ([experiment 01](experiments/01-first-real-run/)).
+> model and run once with a local model ([experiment 01](experiments/01-first-real-run/)),
+> then the same agent as a LangGraph graph.
 > Sections below describe what is built, not what is planned.
 
 ![Architecture](docs/architecture.png)
@@ -84,6 +85,25 @@ correctly; the miss was a misleading suggestion that no keyword check caught. Me
 20–41 s per question. llama-server's prompt cache cuts the total time by 3.1x (measured),
 which is why the system prompt and tool list stay fixed at the start of the prompt.
 
+## LangGraph version
+
+`agent_graph.py` is the same agent as a LangGraph state graph: a `model` node, a `tools`
+node, and two conditional edges (tool calls requested? step budget used up?). The state is
+the list of messages, with an *append* reducer, plus the number of model calls.
+
+- It reuses the model adapter, the MCP toolbox and the OpenAI-format messages of the
+  hand-written loop: LangGraph only orchestrates, and no LangChain message classes are needed.
+- `max_steps` is counted in the state, so a run that hits it stops cleanly with
+  `stop_reason="max_steps"`; LangGraph's own recursion limit, which raises, stays as a
+  safety net.
+- **Every agent test runs on both implementations**, which must behave identically.
+  Deliberately breaking the graph (off-by-one in the step budget, step counter never
+  incremented, tools edge removed) makes 1, 3 and 8 of its tests fail.
+
+Why a framework if the behaviour is the same: the next steps (a checkpointer to keep a
+conversation across turns, `interrupt` to pause before a refund until a human approves)
+plug into this graph without rewriting the loop.
+
 ## Setup
 
 ```bash
@@ -101,6 +121,7 @@ src/reliable_tool_agent/
   tools.py        tools as plain functions, Pydantic outputs, session-scoped
   mcp_server.py   MCP server exposing the tools (stdio)
   agent_loop.py   hand-written agent loop (model <-> MCP tools)
+  agent_graph.py  the same agent as a LangGraph state graph
   fake_model.py   scripted model for tests
   llama_server.py ChatModel for llama-server (OpenAI-compatible API)
   prompts.py      system prompt
