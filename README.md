@@ -9,7 +9,7 @@ the answer.
 > **Status: work in progress.** Built so far: the fictional shop, read-only access,
 > three read-only tools served over MCP, and a hand-written agent loop tested with a scripted
 > model and run once with a local model ([experiment 01](experiments/01-first-real-run/)),
-> then the same agent as a LangGraph graph.
+> then the same agent as a LangGraph graph with conversation memory.
 > Sections below describe what is built, not what is planned.
 
 ![Architecture](docs/architecture.png)
@@ -100,9 +100,27 @@ the list of messages, with an *append* reducer, plus the number of model calls.
   Deliberately breaking the graph (off-by-one in the step budget, step counter never
   incremented, tools edge removed) makes 1, 3 and 8 of its tests fail.
 
-Why a framework if the behaviour is the same: the next steps (a checkpointer to keep a
-conversation across turns, `interrupt` to pause before a refund until a human approves)
-plug into this graph without rewriting the loop.
+Why a framework if the behaviour is the same: persistence and pausing plug into this
+graph without rewriting the loop.
+
+**Conversations across turns.** `GraphAgent.ask(thread_id, message)` compiles the graph
+with a checkpointer, which saves the state after every node under the thread id. A new
+message on the same thread is appended to the saved conversation, so "can I return it?"
+knows which order "it" is.
+
+- The system prompt is added once, on the first message of a thread.
+- The step budget resets at each message: `max_steps` bounds one turn, not a conversation.
+- Threads are isolated; a new agent built on the same checkpointer resumes a thread, as a
+  web server handling a new request will.
+- The thread id comes from the application, never from the model. Checkpoints hold
+  personal data (orders, amounts), so they will need a retention limit.
+- For now the checkpointer is `InMemorySaver` (lost on restart); a database-backed one
+  comes with the web API.
+- **Known limit:** the whole history is re-sent at each turn. With an 8k-token context and
+  ~1k–1.4k tokens per question, the local model holds about six turns. Trimming or
+  summarising old messages is a later step; a test documents the current behaviour.
+
+Next: `interrupt`, to pause before a refund until a human approves.
 
 ## Setup
 
@@ -121,7 +139,7 @@ src/reliable_tool_agent/
   tools.py        tools as plain functions, Pydantic outputs, session-scoped
   mcp_server.py   MCP server exposing the tools (stdio)
   agent_loop.py   hand-written agent loop (model <-> MCP tools)
-  agent_graph.py  the same agent as a LangGraph state graph
+  agent_graph.py  the same agent as a LangGraph state graph, with conversation memory
   fake_model.py   scripted model for tests
   llama_server.py ChatModel for llama-server (OpenAI-compatible API)
   prompts.py      system prompt
