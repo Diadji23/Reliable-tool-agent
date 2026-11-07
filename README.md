@@ -7,7 +7,7 @@ evaluation that checks the **final state of the database** rather than the wordi
 the answer.
 
 > **Status: work in progress.** Built so far: the fictional shop, read-only access,
-> three read-only tools served over MCP, and a hand-written agent loop tested with a scripted
+> four read-only tools served over MCP, and a hand-written agent loop tested with a scripted
 > model and run once with a local model ([experiment 01](experiments/01-first-real-run/)),
 > then the same agent as a LangGraph graph with conversation memory.
 > Sections below describe what is built, not what is planned.
@@ -51,6 +51,14 @@ use them.
 | `get_order` | `order_id` | status, dates, items and amounts (integer cents) |
 | `list_my_orders` | `status` (optional, one of 4 values) | the customer's orders, newest first |
 | `search_policies` | `query` | up to 3 numbered policy rules, or an empty list |
+| `check_return_eligibility` | `order_id` | per item: returnable or not, returnable if defective or wrong, the reason, the last day of the window |
+
+**Deterministic work is done in code, not by the model.** `check_return_eligibility`
+applies the returns policy in Python (30-day window, delivered orders only, final sale),
+tested at day 0, 30 and 31. It exists because the model got the window wrong in a chat
+session ("delivered 5 October, today 15 October: more than 30 days") and, challenged,
+invented a day count to defend it. The error only appeared mid-conversation, never on the
+same question asked alone ([experiment 02](experiments/02-return-eligibility/README.md)).
 
 Arguments are validated by Pydantic before a tool runs: `list_my_orders(status="lost")`
 is rejected with the list of allowed values, so the model can correct itself.
