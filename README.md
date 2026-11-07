@@ -130,6 +130,18 @@ uv run python scripts/build_db.py   # writes data/shop.db
 uv run pytest
 ```
 
+Talk to the agent as one customer (needs [llama.cpp](https://github.com/ggml-org/llama.cpp)
+and a GGUF model; the run above used Qwen3.5-4B Q4_K_M):
+
+```bash
+llama-server -m models/Qwen3.5-4B-Q4_K_M.gguf --jinja -c 8192 --port 8080 -t 4   # terminal 1
+uv run python scripts/chat.py --customer C0001                                   # terminal 2
+```
+
+The chat prints each tool call and result, the number of model calls, the time and the
+tokens of every turn. `/orders` lists the customer's orders straight from the database,
+`/trace` shows the conversation as the model sees it, `/new` starts a new conversation.
+
 ## Repository layout
 
 ```
@@ -143,7 +155,7 @@ src/reliable_tool_agent/
   fake_model.py   scripted model for tests
   llama_server.py ChatModel for llama-server (OpenAI-compatible API)
   prompts.py      system prompt
-scripts/          build_db.py, first_run.py
+scripts/          build_db.py, first_run.py, chat.py (talk to the agent)
 experiments/      one folder per experiment: hypotheses, protocol, traces, results
 docs/             architecture diagram (TikZ source + PNG)
 data/policies/    shop policies (Markdown)
