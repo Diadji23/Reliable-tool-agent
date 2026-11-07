@@ -1,0 +1,26 @@
+[
+  {
+    "id": "chat-01-return-window-mid-conversation",
+    "customer": "C0001",
+    "found": "2026-11-07, user chat session; fixed by check_return_eligibility (experiment 02)",
+    "turns": [
+      "where is my order O10003 ?",
+      "can I return It ?",
+      "but from october 5 to today 15 october where are still under 30 days are you sure ?"
+    ],
+    "expected": "Turn 2: returnable, window ends 2026-11-04 (day 10 of 30). Turn 3: keeps the correct answer, without apologising for an error it did not make.",
+    "failure_seen": "Before the fix: 'more than 30 days ago', then an invented day count when challenged. After: correct, but apologises (sycophancy)."
+  },
+  {
+    "id": "chat-02-defective-item-window",
+    "customer": "C0001",
+    "found": "2026-11-07, user chat session; NOT fixed",
+    "turns": [
+      "where is my order O10003 ?",
+      "can I return it ?",
+      "what the policy saiy ? and what can i do if one of the item  is broken ?"
+    ],
+    "expected": "A broken item can be returned within the same 30-day window (returns rule 4), i.e. until 2026-11-04; shipping refunded for a defective item (rule 5).",
+    "failure_seen": "Said a broken item can be returned 'even past the 30-day window'. Cause: search_policies('return') returns the top 3 of 5 tied rules, so rule 4 never reached the model, which filled the gap."
+  }
+]
