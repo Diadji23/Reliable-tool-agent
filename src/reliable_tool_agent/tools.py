@@ -8,13 +8,14 @@ argument, so the model cannot ask for another customer's data, whatever a messag
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel
 
 from reliable_tool_agent.db import DEFAULT_DB_PATH, connect_readonly
+from reliable_tool_agent.world import WORLD_TODAY
 
 POLICIES_DIR = Path(__file__).resolve().parents[2] / "data" / "policies"
 
@@ -28,6 +29,7 @@ class Session:
     customer_id: str
     db_path: Path = DEFAULT_DB_PATH
     policies_dir: Path = POLICIES_DIR
+    today: date = WORLD_TODAY  # the world's fixed date; tests move it to check boundaries
 
 
 class NotFoundError(LookupError):
@@ -177,3 +179,81 @@ def search_policies(session: Session, query: str, k: int = 3) -> list[PolicyRule
             if score:
                 scored.append((-score, -len(title), rule.policy, rule.rule, rule))
     return [rule for *_, rule in sorted(scored)[:k]]
+
+
+# --- Return eligibility: the returns policy, applied in code -----------------------------
+
+RETURN_WINDOW_DAYS = 30  # returns.md rule 1: day 0 = delivery day, day 30 accepted
+
+
+class ItemEligibility(BaseModel):
+    product_id: str
+    product_name: str
+    quantity: int
+    final_sale: bool
+    returnable: bool  # can be returned for any reason today
+    returnable_if_defective_or_wrong: bool  # can be returned if defective, damaged or wrong
+    reason: str
+
+
+class ReturnEligibility(BaseModel):
+    order_id: str
+    status: OrderStatus
+    today: date
+    delivered_at: date | None
+    days_since_delivery: int | None
+    return_window_ends: date | None  # last day a return is accepted
+    items: list[ItemEligibility]
+
+
+def check_return_eligibility(session: Session, order_id: str) -> ReturnEligibility:
+    """Apply the returns policy (rules 1-4) to every item of an order.
+
+    Date arithmetic and rule logic are done here, not by the model: a small model asked
+    "delivered on 5 October, today is 15 October: within 30 days?" answered no, and when
+    challenged, produced a confident but wrong day count. The model now only reads
+    `returnable` and `reason`.
+    """
+    order = get_order(session, order_id)
+    days = window_ends = None
+    if order.status == "delivered" and order.delivered_at is not None:
+        days = (session.today - order.delivered_at).days
+        window_ends = order.delivered_at + timedelta(days=RETURN_WINDOW_DAYS)
+
+    items = []
+    for item in order.items:
+        if order.status != "delivered":
+            ok = ok_if_faulty = False
+            reason = f"Only delivered orders can be returned; this order is {order.status}."
+        elif days > RETURN_WINDOW_DAYS:
+            ok = ok_if_faulty = False
+            reason = f"The 30-day return window ended on {window_ends.isoformat()}."
+        elif item.final_sale:
+            ok, ok_if_faulty = False, True
+            reason = (
+                "Final sale: returnable only if defective, damaged or the wrong item, "
+                f"until {window_ends.isoformat()}."
+            )
+        else:
+            ok = ok_if_faulty = True
+            reason = f"Returnable until {window_ends.isoformat()} (day {days} of 30)."
+        items.append(
+            ItemEligibility(
+                product_id=item.product_id,
+                product_name=item.product_name,
+                quantity=item.quantity,
+                final_sale=item.final_sale,
+                returnable=ok,
+                returnable_if_defective_or_wrong=ok_if_faulty,
+                reason=reason,
+            )
+        )
+    return ReturnEligibility(
+        order_id=order.id,
+        status=order.status,
+        today=session.today,
+        delivered_at=order.delivered_at,
+        days_since_delivery=days,
+        return_window_ends=window_ends,
+        items=items,
+    )

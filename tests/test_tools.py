@@ -10,6 +10,7 @@ import pytest
 from reliable_tool_agent.tools import (
     NotFoundError,
     Session,
+    check_return_eligibility,
     get_order,
     list_my_orders,
     search_policies,
@@ -112,3 +113,63 @@ def test_search_known_limit_no_synonyms(shop_db):
     policy (no shared word). If this test starts failing, the search got smarter."""
     results = search_policies(Session("C0001", shop_db), "send it back")
     assert all(r.policy != "returns" for r in results)
+
+
+# --- check_return_eligibility -------------------------------------------------------
+# Fixed data from the deterministic world: C0001's O10001 was delivered on 2026-09-18,
+# O10002 contains a final-sale item, C0006's O10009 is shipped.
+
+
+def eligibility(customer: str, order_id: str, shop_db, today: date = date(2026, 10, 15)):
+    return check_return_eligibility(Session(customer, shop_db, today=today), order_id)
+
+
+def test_ten_days_after_delivery_is_returnable(shop_db):
+    """The case the model got wrong in the chat: delivered 5 Oct, today 15 Oct."""
+    result = eligibility("C0001", "O10003", shop_db)
+    assert result.days_since_delivery == 10
+    assert result.return_window_ends == date(2026, 11, 4)
+    assert all(item.returnable for item in result.items)
+
+
+@pytest.mark.parametrize(
+    ("today", "day", "returnable"),
+    [
+        (date(2026, 9, 18), 0, True),  # delivery day counts as day 0
+        (date(2026, 10, 18), 30, True),  # day 30 is accepted
+        (date(2026, 10, 19), 31, False),  # day 31 is refused
+    ],
+)
+def test_return_window_boundaries(shop_db, today, day, returnable):
+    result = eligibility("C0001", "O10001", shop_db, today)
+    assert result.days_since_delivery == day
+    assert result.return_window_ends == date(2026, 10, 18)
+    assert {item.returnable for item in result.items} == {returnable}
+    assert {item.returnable_if_defective_or_wrong for item in result.items} == {returnable}
+
+
+def test_final_sale_item_only_if_defective_or_wrong(shop_db):
+    items = {i.product_name: i for i in eligibility("C0001", "O10002", shop_db).items}
+    lights = items["String lights 10 m"]
+    assert lights.final_sale and not lights.returnable
+    assert lights.returnable_if_defective_or_wrong
+    assert "Final sale" in lights.reason
+    assert items["Chef's knife 20 cm"].returnable  # the rest of the order is not affected
+
+
+def test_final_sale_item_after_the_window_is_not_returnable_at_all(shop_db):
+    late = eligibility("C0001", "O10002", shop_db, date(2026, 12, 1))
+    assert not any(i.returnable or i.returnable_if_defective_or_wrong for i in late.items)
+
+
+def test_order_not_delivered_cannot_be_returned(shop_db):
+    result = eligibility("C0006", "O10009", shop_db)
+    assert result.status == "shipped"
+    assert result.days_since_delivery is None and result.return_window_ends is None
+    assert not any(i.returnable or i.returnable_if_defective_or_wrong for i in result.items)
+    assert "shipped" in result.items[0].reason
+
+
+def test_eligibility_of_another_customers_order_is_not_found(shop_db):
+    with pytest.raises(NotFoundError):
+        eligibility("C0001", "O10009", shop_db)
