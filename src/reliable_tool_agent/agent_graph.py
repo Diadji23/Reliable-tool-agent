@@ -138,6 +138,13 @@ class GraphAgent:
         final = await self._graph.ainvoke({"messages": new, "steps": 0}, config)
         return _result(final)
 
+    async def history(self, thread_id: str) -> list[Message]:
+        """The saved conversation of a thread, as the model sees it ([] if none yet)."""
+        if self._graph is None:
+            return []
+        saved = await self._graph.aget_state({"configurable": {"thread_id": thread_id}})
+        return saved.values.get("messages", [])
+
 
 def _recursion_limit(max_steps: int) -> int:
     # Our own max_steps stops a turn cleanly; LangGraph's recursion limit (graph steps,

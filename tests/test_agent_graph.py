@@ -117,3 +117,15 @@ async def test_history_is_kept_whole_for_now(shop_db, owner_and_order):
         for i in range(10):
             result = await agent.ask("t1", f"Question {i}")
     assert len(result.messages) == 1 + 2 * 10
+
+
+async def test_history_returns_the_saved_conversation(shop_db, owner_and_order):
+    owner, _ = owner_and_order
+    async with Client(build_server(Session(owner, shop_db))) as client:
+        agent = GraphAgent(
+            ScriptedModel([AssistantTurn("Hello!")]), McpToolbox(client), SYSTEM, InMemorySaver()
+        )
+        assert await agent.history("t1") == []
+        await agent.ask("t1", "Hi")
+        assert roles(await agent.history("t1")) == ["system", "user", "assistant"]
+        assert await agent.history("unknown") == []
