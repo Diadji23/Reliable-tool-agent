@@ -76,11 +76,12 @@
   \node[built=mcp, fill=mcp!6, minimum width=3.4in, minimum height=5.35in, rounded corners=8pt]
     (mcp) at (11.3, 4.625) {};
   \node[frametitle, text=black] at (11.3, 6.98) {MCP server};
-  \node[built=mcp,   minimum width=2.8in, minimum height=0.6in] at (11.3, 6.35) {get\_order};
-  \node[built=mcp,   minimum width=2.8in, minimum height=0.6in] at (11.3, 5.53) {list\_my\_orders};
-  \node[built=mcp,   minimum width=2.8in, minimum height=0.6in] at (11.3, 4.71) {search\_policies};
-  \node[planned=mcp, minimum width=2.8in, minimum height=0.6in] at (11.3, 3.89) {refund\_order$^\dagger$};
-  \node[planned=mcp, minimum width=2.8in, minimum height=0.6in] at (11.3, 3.07) {cancel\_order$^\dagger$};
+  \node[built=mcp,   minimum width=2.8in, minimum height=0.5in] at (11.3, 6.40) {get\_order};
+  \node[built=mcp,   minimum width=2.8in, minimum height=0.5in] at (11.3, 5.72) {list\_my\_orders};
+  \node[built=mcp,   minimum width=2.8in, minimum height=0.5in] at (11.3, 5.04) {search\_policies};
+  \node[built=mcp,   minimum width=2.8in, minimum height=0.5in] at (11.3, 4.36) {check\_return\_eligibility};
+  \node[planned=mcp, minimum width=2.8in, minimum height=0.5in] at (11.3, 3.68) {refund\_order$^\dagger$};
+  \node[planned=mcp, minimum width=2.8in, minimum height=0.5in] at (11.3, 3.00) {cancel\_order$^\dagger$};
   \node[note] at (11.3, 2.25) {$^\dagger$ sensitive: needs human approval};
 
   \draw[darr, mcp] (8.8, 4.85) -- (9.6, 4.85);
