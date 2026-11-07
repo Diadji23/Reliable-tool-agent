@@ -1,0 +1,31 @@
+Brindle Home support - customer C0001. Commands: /orders /new /trace /quit
+
+you> 
+agent> Hello! How can I assist you today?
+  [1 model call(s), 3.9 s, 992 prompt + 10 generated tokens]
+
+you>   -> get_order({"order_id":"O10003"})
+  <- {"id": "O10003", "status": "delivered", "ordered_at": "2026-09-27", "delivered_at": "2026-10-05", "shipping_cents": 0, "total_cents": 19600, "items": [{"product ...
+
+agent> Your order O10003 has been delivered on October 5th, 2026. It contains 2 Brass table lamps and the total amount was 196.00 EUR.
+  [2 model call(s), 32.4 s, 2212 prompt + 77 generated tokens]
+
+you>   -> check_return_eligibility({"order_id":"O10003"})
+  <- {"order_id": "O10003", "status": "delivered", "today": "2026-10-15", "delivered_at": "2026-10-05", "days_since_delivery": 10, "return_window_ends": "2026-11-04" ...
+
+agent> Yes, your Brass table lamps can still be returned. The return window ends on November 4th, 2026.
+  [2 model call(s), 45.5 s, 2702 prompt + 64 generated tokens]
+
+you>   -> search_policies({"query":"return window 30 days"})
+  <- {"result": [{"policy": "returns", "rule": 4, "text": "A defective, damaged or wrong item can be returned within the same 30-day window."}, {"policy": "returns", ...
+
+agent> You are absolutely correct. I apologize for the confusion.
+
+According to our policy, the 30-day window starts from the delivery date (October 5th).
+*   Delivery date: October 5th (Day 0)
+*   Return window ends: November 4th (Day 30)
+
+Since today is October 15th, you are only 10 days into the 30-day window, so your items are definitely still eligible for return. The return window ends on November 4th, 2026.
+  [2 model call(s), 74.3 s, 3207 prompt + 149 generated tokens]
+
+you> 
