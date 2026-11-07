@@ -58,8 +58,10 @@
     (guardin) at (5.65, 6.225) {Input guardrails --- prompt injection, out-of-scope refusal};
   \node[built=agent, minimum width=3.5in, minimum height=0.85in]
     (loop) at (4.55, 5.175) {LLM $\rightleftarrows$ tool calls\\(state graph)};
-  \node[planned=agent, minimum width=3.5in, minimum height=0.55in]
-    (memory) at (4.55, 4.375) {memory + context management};
+  \node[built=agent, font=\normalsize, minimum width=1.7in, minimum height=0.55in]
+    (memory) at (3.65, 4.375) {memory (checkpointer)};
+  \node[planned=agent, font=\normalsize, minimum width=1.7in, minimum height=0.55in]
+    (context) at (5.45, 4.375) {context management};
   \node[built=agent, font=\normalsize, minimum width=1.95in, minimum height=1.5in]
     (llm) at (7.525, 4.85) {Local LLM\\(llama.cpp)\\/ free API};
   \node[planned=guard, minimum width=5.7in, minimum height=0.7in]
