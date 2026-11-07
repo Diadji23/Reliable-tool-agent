@@ -35,7 +35,12 @@ async def test_schema_exposes_no_customer_id(shop_db, owner_and_order):
     async with Client(build_server(Session(owner, shop_db))) as client:
         listed = await client.list_tools()
     tools = {t.name: t for t in listed.tools}
-    assert set(tools) == {"get_order", "list_my_orders", "search_policies"}
+    assert set(tools) == {
+        "get_order",
+        "list_my_orders",
+        "search_policies",
+        "check_return_eligibility",
+    }
     schema = tools["get_order"].input_schema
     assert schema["required"] == ["order_id"]
     for tool in tools.values():
@@ -80,3 +85,13 @@ async def test_stdio_transport_end_to_end(shop_db, owner_and_order):
         result = await client.call_tool("get_order", {"order_id": order_id})
     assert not result.is_error
     assert result.structured_content["id"] == order_id
+
+
+async def test_return_eligibility_over_mcp(shop_db):
+    async with Client(build_server(Session("C0001", shop_db))) as client:
+        ok = await client.call_tool("check_return_eligibility", {"order_id": "O10003"})
+        missing = await client.call_tool("check_return_eligibility", {"order_id": "O10009"})
+    assert ok.structured_content["return_window_ends"] == "2026-11-04"
+    assert ok.structured_content["items"][0]["returnable"] is True
+    assert missing.is_error  # another customer's order: same answer as a missing one
+    assert "No order 'O10009' found" in missing.content[0].text

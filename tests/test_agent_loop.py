@@ -86,7 +86,12 @@ async def test_tool_specs_are_translated_for_the_model(shop_db, owner_and_order)
     async with Client(build_server(Session(owner, shop_db))) as client:
         specs = await McpToolbox(client).specs()
     by_name = {s["function"]["name"]: s for s in specs}
-    assert set(by_name) == {"get_order", "list_my_orders", "search_policies"}
+    assert set(by_name) == {
+        "get_order",
+        "list_my_orders",
+        "search_policies",
+        "check_return_eligibility",
+    }
     get_order = by_name["get_order"]
     assert get_order["type"] == "function"
     assert get_order["function"]["description"].startswith("Get one of the current")

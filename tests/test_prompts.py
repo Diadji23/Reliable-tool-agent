@@ -14,3 +14,7 @@ def test_prompt_states_today_so_the_return_window_can_be_applied():
 
 def test_prompt_explains_that_amounts_are_cents():
     assert "integer cents" in system_prompt()
+
+
+def test_prompt_sends_return_questions_to_the_eligibility_tool():
+    assert "check_return_eligibility" in system_prompt()

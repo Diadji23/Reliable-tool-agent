@@ -24,6 +24,7 @@ from reliable_tool_agent.tools import (
     OrderStatus,
     OrderSummary,
     PolicyRule,
+    ReturnEligibility,
     Session,
 )
 
@@ -68,6 +69,20 @@ def build_server(session: Session) -> MCPServer:
         Always check the policy before telling a customer what is allowed.
         """
         return tools.search_policies(session, query)
+
+    @server.tool()
+    def check_return_eligibility(order_id: str) -> ReturnEligibility:
+        """Check whether the items of one of the customer's orders can be returned today.
+
+        Applies the returns policy (30-day window, delivered orders only, final sale) and
+        gives, per item, `returnable`, `returnable_if_defective_or_wrong` and the reason,
+        with the last day a return is accepted. Use it for any question about returning
+        an item instead of computing dates yourself.
+        """
+        try:
+            return tools.check_return_eligibility(session, order_id)
+        except NotFoundError as exc:
+            raise ToolError(str(exc)) from exc
 
     return server
 
