@@ -57,11 +57,14 @@ CREATE TABLE order_items (
 );
 
 CREATE TABLE refunds (
-    id           INTEGER PRIMARY KEY,
-    order_id     TEXT NOT NULL REFERENCES orders(id),
-    amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
-    reason       TEXT NOT NULL,
-    created_at   TEXT NOT NULL
+    id             INTEGER PRIMARY KEY,
+    order_id       TEXT NOT NULL REFERENCES orders(id),
+    product_id     TEXT NOT NULL REFERENCES products(id),
+    quantity       INTEGER NOT NULL CHECK (quantity > 0),
+    shipping_cents INTEGER NOT NULL CHECK (shipping_cents >= 0),  -- part of amount_cents
+    amount_cents   INTEGER NOT NULL CHECK (amount_cents > 0),
+    reason         TEXT NOT NULL,
+    created_at     TEXT NOT NULL
 );
 """
 
@@ -189,8 +192,17 @@ def _insert_orders(conn: sqlite3.Connection, rng: random.Random, customers: list
                 pid, q, p = lines[0]
                 refunded_on = min(delivered + timedelta(days=rng.randint(1, 10)), WORLD_TODAY)
                 conn.execute(
-                    "INSERT INTO refunds VALUES (?, ?, ?, ?, ?)",
-                    (refund_id, oid, p, f"Returned one unit of {pid}", refunded_on.isoformat()),
+                    "INSERT INTO refunds VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        refund_id,
+                        oid,
+                        pid,
+                        1,
+                        0,
+                        p,
+                        f"Returned one unit of {pid}",
+                        refunded_on.isoformat(),
+                    ),
                 )
                 refund_id += 1
 
