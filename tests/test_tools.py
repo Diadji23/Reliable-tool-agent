@@ -9,10 +9,13 @@ import pytest
 
 from reliable_tool_agent.tools import (
     NotFoundError,
+    RefundRefusedError,
     Session,
     check_return_eligibility,
     get_order,
     list_my_orders,
+    quote_refund,
+    refund_order,
     search_policies,
 )
 
@@ -173,3 +176,115 @@ def test_order_not_delivered_cannot_be_returned(shop_db):
 def test_eligibility_of_another_customers_order_is_not_found(shop_db):
     with pytest.raises(NotFoundError):
         eligibility("C0001", "O10009", shop_db)
+
+
+# --- Refunds ---------------------------------------------------------------------------
+# O10040 (C0021, delivered 13 Oct, shipping 590): P010 x1 at 4500, P019 x1 at 2600 final sale.
+# O10032 (C0018, delivered 15 Oct): P014 x2 at 14500, one unit already refunded.
+
+
+def refunds_in(db) -> list[tuple]:
+    conn = sqlite3.connect(db)
+    rows = conn.execute("SELECT * FROM refunds ORDER BY id").fetchall()
+    conn.close()
+    return rows
+
+
+def test_changed_mind_refunds_the_item_price_only(writable_db):
+    refund = refund_order(Session("C0021", writable_db), "O10040", "P010", 1, "changed_mind")
+    assert (refund.item_cents, refund.shipping_cents, refund.amount_cents) == (4500, 0, 4500)
+    last = refunds_in(writable_db)[-1]
+    assert last[1:6] == ("O10040", "P010", 1, 0, 4500)
+    assert last[6] == "changed_mind: 1 x P010"
+    assert last[7] == "2026-10-15"
+
+
+def test_defective_item_also_refunds_shipping_but_only_once(writable_db):
+    session = Session("C0021", writable_db)
+    first = refund_order(session, "O10040", "P010", 1, "defective_or_wrong")
+    assert (first.shipping_cents, first.amount_cents) == (590, 5090)
+    # The final-sale item can be refunded when defective, without a second shipping fee.
+    second = refund_order(session, "O10040", "P019", 1, "defective_or_wrong")
+    assert (second.shipping_cents, second.amount_cents) == (0, 2600)
+    assert second.already_refunded_cents == 5090
+
+
+def test_final_sale_item_is_refused_when_customer_changed_mind(writable_db):
+    with pytest.raises(RefundRefusedError, match="Final sale"):
+        refund_order(Session("C0021", writable_db), "O10040", "P019", 1, "changed_mind")
+
+
+def test_refund_after_the_return_window_is_refused(writable_db):
+    late = Session("C0001", writable_db, today=date(2026, 10, 19))  # day 31 for O10001
+    for condition in ("changed_mind", "defective_or_wrong"):
+        with pytest.raises(RefundRefusedError, match="window ended"):
+            refund_order(late, "O10001", "P003", 1, condition)
+
+
+def test_order_not_delivered_cannot_be_refunded(writable_db):
+    with pytest.raises(RefundRefusedError, match="shipped"):
+        refund_order(Session("C0006", writable_db), "O10009", "P015", 1, "defective_or_wrong")
+
+
+def test_already_refunded_units_are_deducted(writable_db):
+    session = Session("C0018", writable_db)
+    with pytest.raises(RefundRefusedError, match="1 already refunded, so at most 1"):
+        refund_order(session, "O10032", "P014", 2, "changed_mind")
+    assert refund_order(session, "O10032", "P014", 1, "changed_mind").amount_cents == 14500
+
+
+def test_the_same_units_cannot_be_refunded_twice(writable_db):
+    session = Session("C0001", writable_db)
+    refund_order(session, "O10003", "P012", 2, "changed_mind")
+    with pytest.raises(RefundRefusedError, match="at most 0"):
+        refund_order(session, "O10003", "P012", 1, "changed_mind")
+
+
+def test_total_refunded_never_exceeds_amount_paid(writable_db):
+    """refunds.md rule 2 is checked on its own, even if per-item records were inconsistent."""
+    conn = sqlite3.connect(writable_db)
+    conn.execute(
+        "INSERT INTO refunds (order_id, product_id, quantity, shipping_cents, amount_cents, "
+        "reason, created_at) VALUES ('O10040', 'P019', 1, 0, 5000, 'legacy', '2026-10-14')"
+    )
+    conn.commit()
+    conn.close()
+    with pytest.raises(RefundRefusedError, match="cannot exceed the 7690 cents paid"):
+        refund_order(Session("C0021", writable_db), "O10040", "P010", 1, "changed_mind")
+
+
+@pytest.mark.parametrize(
+    ("customer", "order_id", "product_id"),
+    [
+        ("C0001", "O10040", "P010"),  # another customer's order looks missing
+        ("C0001", "O10003", "P001"),  # product not in the order
+    ],
+)
+def test_refund_of_something_not_owned_is_not_found(writable_db, customer, order_id, product_id):
+    with pytest.raises(NotFoundError):
+        refund_order(Session(customer, writable_db), order_id, product_id, 1, "changed_mind")
+
+
+def test_quantity_must_be_positive(writable_db):
+    with pytest.raises(RefundRefusedError, match="at least 1"):
+        refund_order(Session("C0021", writable_db), "O10040", "P010", 0, "changed_mind")
+
+
+def test_refused_refunds_leave_the_database_unchanged(writable_db):
+    before = refunds_in(writable_db)
+    session = Session("C0021", writable_db)
+    for args in [("P019", 1, "changed_mind"), ("P010", 2, "changed_mind")]:
+        with pytest.raises(RefundRefusedError):
+            refund_order(session, "O10040", *args)
+    with pytest.raises(NotFoundError):
+        refund_order(Session("C0001", writable_db), "O10040", "P010", 1, "changed_mind")
+    assert refunds_in(writable_db) == before
+
+
+def test_quote_matches_the_refund_and_writes_nothing(writable_db):
+    session = Session("C0021", writable_db)
+    before = refunds_in(writable_db)
+    quote = quote_refund(session, "O10040", "P010", 1, "defective_or_wrong")
+    assert refunds_in(writable_db) == before
+    refund = refund_order(session, "O10040", "P010", 1, "defective_or_wrong")
+    assert refund.model_dump(exclude={"refund_id", "created_at"}) == quote.model_dump()

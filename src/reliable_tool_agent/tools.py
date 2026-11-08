@@ -7,6 +7,7 @@ argument, so the model cannot ask for another customer's data, whatever a messag
 
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
@@ -14,7 +15,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from reliable_tool_agent.db import DEFAULT_DB_PATH, connect_readonly
+from reliable_tool_agent.db import DEFAULT_DB_PATH, connect_for_refunds, connect_readonly
 from reliable_tool_agent.world import WORLD_TODAY
 
 POLICIES_DIR = Path(__file__).resolve().parents[2] / "data" / "policies"
@@ -257,3 +258,148 @@ def check_return_eligibility(session: Session, order_id: str) -> ReturnEligibili
         return_window_ends=window_ends,
         items=items,
     )
+
+
+RefundCondition = Literal["changed_mind", "defective_or_wrong"]
+
+
+class RefundRefusedError(ValueError):
+    """The refund breaks a policy rule. The message says which one, for the model to relay."""
+
+
+class RefundQuote(BaseModel):
+    """What a refund would be: computed by code, shown to the human who approves it."""
+
+    order_id: str
+    product_id: str
+    product_name: str
+    quantity: int
+    condition: RefundCondition
+    item_cents: int  # unit price x quantity (returns.md rule 5)
+    shipping_cents: int  # original shipping fee, only if defective or wrong, only once
+    amount_cents: int  # item_cents + shipping_cents
+    already_refunded_cents: int  # on this order, before this refund
+
+
+class Refund(RefundQuote):
+    """A refund that was issued."""
+
+    refund_id: int
+    created_at: date
+
+
+def _quote(
+    conn: sqlite3.Connection,
+    session: Session,
+    order_id: str,
+    product_id: str,
+    quantity: int,
+    condition: RefundCondition,
+) -> RefundQuote:
+    """Apply the returns and refunds policies; refunds already issued are read from `conn`."""
+    if quantity < 1:
+        raise RefundRefusedError("The quantity to refund must be at least 1.")
+    order = get_order(session, order_id)  # NotFoundError for someone else's order
+    eligibility = check_return_eligibility(session, order_id)
+    item = next((i for i in order.items if i.product_id == product_id), None)
+    if item is None:
+        raise NotFoundError(f"Order {order_id} has no product {product_id!r}.")
+    status = next(i for i in eligibility.items if i.product_id == product_id)
+
+    if condition == "changed_mind" and not status.returnable:
+        raise RefundRefusedError(f"{item.product_name} cannot be refunded: {status.reason}")
+    if condition == "defective_or_wrong" and not status.returnable_if_defective_or_wrong:
+        raise RefundRefusedError(f"{item.product_name} cannot be refunded: {status.reason}")
+
+    (item_refunded,) = conn.execute(
+        "SELECT COALESCE(SUM(quantity), 0) FROM refunds WHERE order_id = ? AND product_id = ?",
+        (order_id, product_id),
+    ).fetchone()
+    left = item.quantity - item_refunded
+    if quantity > left:
+        raise RefundRefusedError(
+            f"{item.product_name}: {item.quantity} ordered, {item_refunded} already refunded, "
+            f"so at most {left} can be refunded."
+        )
+
+    already, shipping_refunded = conn.execute(
+        "SELECT COALESCE(SUM(amount_cents), 0), COALESCE(SUM(shipping_cents), 0) "
+        "FROM refunds WHERE order_id = ?",
+        (order_id,),
+    ).fetchone()
+    item_cents = item.unit_price_cents * quantity
+    shipping = (
+        order.shipping_cents if condition == "defective_or_wrong" and not shipping_refunded else 0
+    )
+    amount = item_cents + shipping
+    if already + amount > order.total_cents:  # refunds.md rule 2, checked whatever the cause
+        raise RefundRefusedError(
+            f"Refunds on order {order_id} cannot exceed the {order.total_cents} cents paid "
+            f"({already} cents already refunded)."
+        )
+    return RefundQuote(
+        order_id=order_id,
+        product_id=product_id,
+        product_name=item.product_name,
+        quantity=quantity,
+        condition=condition,
+        item_cents=item_cents,
+        shipping_cents=shipping,
+        amount_cents=amount,
+        already_refunded_cents=already,
+    )
+
+
+def quote_refund(
+    session: Session,
+    order_id: str,
+    product_id: str,
+    quantity: int,
+    condition: RefundCondition,
+) -> RefundQuote:
+    """Compute a refund without issuing it. Raises RefundRefusedError if a rule forbids it."""
+    with connect_readonly(session.db_path) as conn:
+        return _quote(conn, session, order_id, product_id, quantity, condition)
+
+
+def refund_order(
+    session: Session,
+    order_id: str,
+    product_id: str,
+    quantity: int,
+    condition: RefundCondition,
+) -> Refund:
+    """Issue a refund for returned units of one product of an order.
+
+    The model chooses what is returned and why; the code decides whether it is allowed and
+    computes the amount. The checks and the insert share one `BEGIN IMMEDIATE` transaction,
+    so two refunds issued at the same time cannot both pass the "already refunded" checks.
+    The stored reason is built from the condition, never copied from model text.
+    """
+    conn = connect_for_refunds(session.db_path)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            quote = _quote(conn, session, order_id, product_id, quantity, condition)
+            reason = f"{condition}: {quantity} x {product_id}"
+            cursor = conn.execute(
+                "INSERT INTO refunds "
+                "(order_id, product_id, quantity, shipping_cents, amount_cents, reason, "
+                "created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    order_id,
+                    product_id,
+                    quantity,
+                    quote.shipping_cents,
+                    quote.amount_cents,
+                    reason,
+                    session.today.isoformat(),
+                ),
+            )
+            conn.execute("COMMIT")
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
+    finally:
+        conn.close()
+    return Refund(**quote.model_dump(), refund_id=cursor.lastrowid, created_at=session.today)
