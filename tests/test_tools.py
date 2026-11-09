@@ -182,6 +182,10 @@ def test_eligibility_of_another_customers_order_is_not_found(shop_db):
 # O10040 (C0021, delivered 13 Oct, shipping 590): P010 x1 at 4500, P019 x1 at 2600 final sale.
 # O10032 (C0018, delivered 15 Oct): P014 x2 at 14500, one unit already refunded.
 
+# For refunds refused by a policy rule: the refusal comes before the approved amount is
+# compared, so its value does not matter.
+ANY = 1
+
 
 def refunds_in(db) -> list[tuple]:
     conn = sqlite3.connect(db)
@@ -191,7 +195,14 @@ def refunds_in(db) -> list[tuple]:
 
 
 def test_changed_mind_refunds_the_item_price_only(writable_db):
-    refund = refund_order(Session("C0021", writable_db), "O10040", "P010", 1, "changed_mind")
+    refund = refund_order(
+        Session("C0021", writable_db),
+        "O10040",
+        "P010",
+        1,
+        "changed_mind",
+        approved_amount_cents=4500,
+    )
     assert (refund.item_cents, refund.shipping_cents, refund.amount_cents) == (4500, 0, 4500)
     last = refunds_in(writable_db)[-1]
     assert last[1:6] == ("O10040", "P010", 1, 0, 4500)
@@ -201,43 +212,71 @@ def test_changed_mind_refunds_the_item_price_only(writable_db):
 
 def test_defective_item_also_refunds_shipping_but_only_once(writable_db):
     session = Session("C0021", writable_db)
-    first = refund_order(session, "O10040", "P010", 1, "defective_or_wrong")
+    first = refund_order(
+        session, "O10040", "P010", 1, "defective_or_wrong", approved_amount_cents=5090
+    )
     assert (first.shipping_cents, first.amount_cents) == (590, 5090)
     # The final-sale item can be refunded when defective, without a second shipping fee.
-    second = refund_order(session, "O10040", "P019", 1, "defective_or_wrong")
+    second = refund_order(
+        session, "O10040", "P019", 1, "defective_or_wrong", approved_amount_cents=2600
+    )
     assert (second.shipping_cents, second.amount_cents) == (0, 2600)
     assert second.already_refunded_cents == 5090
 
 
 def test_final_sale_item_is_refused_when_customer_changed_mind(writable_db):
     with pytest.raises(RefundRefusedError, match="Final sale"):
-        refund_order(Session("C0021", writable_db), "O10040", "P019", 1, "changed_mind")
+        refund_order(
+            Session("C0021", writable_db),
+            "O10040",
+            "P019",
+            1,
+            "changed_mind",
+            approved_amount_cents=ANY,
+        )
 
 
 def test_refund_after_the_return_window_is_refused(writable_db):
     late = Session("C0001", writable_db, today=date(2026, 10, 19))  # day 31 for O10001
     for condition in ("changed_mind", "defective_or_wrong"):
         with pytest.raises(RefundRefusedError, match="window ended"):
-            refund_order(late, "O10001", "P003", 1, condition)
+            refund_order(late, "O10001", "P003", 1, condition, approved_amount_cents=ANY)
 
 
 def test_order_not_delivered_cannot_be_refunded(writable_db):
     with pytest.raises(RefundRefusedError, match="shipped"):
-        refund_order(Session("C0006", writable_db), "O10009", "P015", 1, "defective_or_wrong")
+        refund_order(
+            Session("C0006", writable_db),
+            "O10009",
+            "P015",
+            1,
+            "defective_or_wrong",
+            approved_amount_cents=ANY,
+        )
 
 
 def test_already_refunded_units_are_deducted(writable_db):
     session = Session("C0018", writable_db)
     with pytest.raises(RefundRefusedError, match="1 already refunded, so at most 1"):
-        refund_order(session, "O10032", "P014", 2, "changed_mind")
-    assert refund_order(session, "O10032", "P014", 1, "changed_mind").amount_cents == 14500
+        refund_order(session, "O10032", "P014", 2, "changed_mind", approved_amount_cents=ANY)
+    refund = refund_order(session, "O10032", "P014", 1, "changed_mind", approved_amount_cents=14500)
+    assert refund.amount_cents == 14500
 
 
 def test_the_same_units_cannot_be_refunded_twice(writable_db):
     session = Session("C0001", writable_db)
-    refund_order(session, "O10003", "P012", 2, "changed_mind")
+    refund_order(
+        session,
+        "O10003",
+        "P012",
+        2,
+        "changed_mind",
+        approved_amount_cents=quote_refund(
+            session, "O10003", "P012", 2, "changed_mind"
+        ).amount_cents,
+    )
     with pytest.raises(RefundRefusedError, match="at most 0"):
-        refund_order(session, "O10003", "P012", 1, "changed_mind")
+        refund_order(session, "O10003", "P012", 1, "changed_mind", approved_amount_cents=ANY)
 
 
 def test_total_refunded_never_exceeds_amount_paid(writable_db):
@@ -250,7 +289,14 @@ def test_total_refunded_never_exceeds_amount_paid(writable_db):
     conn.commit()
     conn.close()
     with pytest.raises(RefundRefusedError, match="cannot exceed the 7690 cents paid"):
-        refund_order(Session("C0021", writable_db), "O10040", "P010", 1, "changed_mind")
+        refund_order(
+            Session("C0021", writable_db),
+            "O10040",
+            "P010",
+            1,
+            "changed_mind",
+            approved_amount_cents=ANY,
+        )
 
 
 @pytest.mark.parametrize(
@@ -262,12 +308,26 @@ def test_total_refunded_never_exceeds_amount_paid(writable_db):
 )
 def test_refund_of_something_not_owned_is_not_found(writable_db, customer, order_id, product_id):
     with pytest.raises(NotFoundError):
-        refund_order(Session(customer, writable_db), order_id, product_id, 1, "changed_mind")
+        refund_order(
+            Session(customer, writable_db),
+            order_id,
+            product_id,
+            1,
+            "changed_mind",
+            approved_amount_cents=ANY,
+        )
 
 
 def test_quantity_must_be_positive(writable_db):
     with pytest.raises(RefundRefusedError, match="at least 1"):
-        refund_order(Session("C0021", writable_db), "O10040", "P010", 0, "changed_mind")
+        refund_order(
+            Session("C0021", writable_db),
+            "O10040",
+            "P010",
+            0,
+            "changed_mind",
+            approved_amount_cents=ANY,
+        )
 
 
 def test_refused_refunds_leave_the_database_unchanged(writable_db):
@@ -275,9 +335,16 @@ def test_refused_refunds_leave_the_database_unchanged(writable_db):
     session = Session("C0021", writable_db)
     for args in [("P019", 1, "changed_mind"), ("P010", 2, "changed_mind")]:
         with pytest.raises(RefundRefusedError):
-            refund_order(session, "O10040", *args)
+            refund_order(session, "O10040", *args, approved_amount_cents=ANY)
     with pytest.raises(NotFoundError):
-        refund_order(Session("C0001", writable_db), "O10040", "P010", 1, "changed_mind")
+        refund_order(
+            Session("C0001", writable_db),
+            "O10040",
+            "P010",
+            1,
+            "changed_mind",
+            approved_amount_cents=ANY,
+        )
     assert refunds_in(writable_db) == before
 
 
@@ -286,5 +353,52 @@ def test_quote_matches_the_refund_and_writes_nothing(writable_db):
     before = refunds_in(writable_db)
     quote = quote_refund(session, "O10040", "P010", 1, "defective_or_wrong")
     assert refunds_in(writable_db) == before
-    refund = refund_order(session, "O10040", "P010", 1, "defective_or_wrong")
+    refund = refund_order(
+        session, "O10040", "P010", 1, "defective_or_wrong", approved_amount_cents=quote.amount_cents
+    )
     assert refund.model_dump(exclude={"refund_id", "created_at"}) == quote.model_dump()
+
+
+# --- The approved amount: what a human approved is what is issued, or nothing ---------
+
+
+def test_refund_is_refused_if_the_amount_is_not_the_one_approved(writable_db):
+    before = refunds_in(writable_db)
+    with pytest.raises(RefundRefusedError, match="now 5090 cents, not the 4500 cents"):
+        refund_order(
+            Session("C0021", writable_db),
+            "O10040",
+            "P010",
+            1,
+            "defective_or_wrong",
+            approved_amount_cents=4500,
+        )
+    assert refunds_in(writable_db) == before
+
+
+def test_amount_changed_between_approval_and_refund(writable_db):
+    """Two approvals given on quotes from the same moment: the shipping fee is refunded
+    only once, so the second refund is now lower than approved, and is not issued."""
+    session = Session("C0021", writable_db)
+    pillow = quote_refund(session, "O10040", "P010", 1, "defective_or_wrong")
+    candle = quote_refund(session, "O10040", "P019", 1, "defective_or_wrong")
+    assert (pillow.amount_cents, candle.amount_cents) == (5090, 3190)  # both with shipping
+
+    refund_order(
+        session,
+        "O10040",
+        "P010",
+        1,
+        "defective_or_wrong",
+        approved_amount_cents=pillow.amount_cents,
+    )
+    with pytest.raises(RefundRefusedError, match="now 2600 cents, not the 3190 cents"):
+        refund_order(
+            session,
+            "O10040",
+            "P019",
+            1,
+            "defective_or_wrong",
+            approved_amount_cents=candle.amount_cents,
+        )
+    assert [r[2] for r in refunds_in(writable_db) if r[1] == "O10040"] == ["P010"]

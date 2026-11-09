@@ -72,7 +72,7 @@ class McpToolbox:
                 "function": {
                     "name": t.name,
                     "description": t.description or "",
-                    "parameters": t.input_schema,
+                    "parameters": hide_approved_amount(t.input_schema),
                 },
             }
             for t in listed
@@ -110,6 +110,17 @@ class McpToolbox:
         return ToolOutput(True, json.dumps(data), data)
 
 
+def hide_approved_amount(schema: dict) -> dict:
+    """The tool's input schema without the argument only the approval may fill."""
+    if APPROVED_AMOUNT not in schema.get("properties", {}):
+        return schema
+    shown = {**schema, "properties": dict(schema["properties"])}
+    del shown["properties"][APPROVED_AMOUNT]
+    if "required" in shown:
+        shown["required"] = [r for r in shown["required"] if r != APPROVED_AMOUNT]
+    return shown
+
+
 @dataclass
 class ToolOutput:
     ok: bool
@@ -123,6 +134,11 @@ class ToolOutput:
 # shows a human what it would do. Decided here, in the agent: MCP annotations are hints
 # written by the server, not a security boundary.
 NEEDS_APPROVAL: dict[str, str] = {"refund_order": "quote_refund"}
+
+# The argument a sensitive tool needs from the human approval. The agent fills it with the
+# amount the reviewer approved; the model never sees it in the tool schema, and a value
+# the model would send anyway is replaced.
+APPROVED_AMOUNT = "approved_amount_cents"
 
 NO_REVIEWER = (
     "Error: {name} needs a human reviewer's approval, and none is available here. "

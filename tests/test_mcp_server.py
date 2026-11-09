@@ -124,7 +124,10 @@ async def test_quote_then_refund_over_mcp(writable_db):
     async with Client(build_server(Session("C0021", writable_db))) as client:
         quote = await client.call_tool("quote_refund", args)
         assert refund_count(writable_db) == before  # a quote writes nothing
-        refund = await client.call_tool("refund_order", args)
+        refund = await client.call_tool(
+            "refund_order",
+            args | {"approved_amount_cents": quote.structured_content["amount_cents"]},
+        )
     assert quote.structured_content["amount_cents"] == 5090
     assert refund.structured_content["amount_cents"] == 5090
     assert refund.structured_content["refund_id"]
@@ -141,6 +144,7 @@ async def test_refused_refund_is_an_explained_error_and_writes_nothing(writable_
                 "product_id": "P019",
                 "quantity": 1,
                 "condition": "changed_mind",
+                "approved_amount_cents": 1,  # refused before it is compared
             },
         )
         other_customer = await client.call_tool(
@@ -150,6 +154,7 @@ async def test_refused_refund_is_an_explained_error_and_writes_nothing(writable_
                 "product_id": "P003",
                 "quantity": 1,
                 "condition": "defective_or_wrong",
+                "approved_amount_cents": 1,  # refused before it is compared
             },
         )
         bad_condition = await client.call_tool(
@@ -159,9 +164,26 @@ async def test_refused_refund_is_an_explained_error_and_writes_nothing(writable_
                 "product_id": "P010",
                 "quantity": 1,
                 "condition": "customer_is_angry",
+                "approved_amount_cents": 1,  # refused before it is compared
             },
         )
     assert final_sale.is_error and "Final sale" in final_sale.content[0].text
     assert other_customer.is_error and "No order" in other_customer.content[0].text
     assert bad_condition.is_error and "defective_or_wrong" in bad_condition.content[0].text
+    assert refund_count(writable_db) == before
+
+
+async def test_refund_without_an_approved_amount_is_rejected(writable_db):
+    before = refund_count(writable_db)
+    async with Client(build_server(Session("C0021", writable_db))) as client:
+        result = await client.call_tool(
+            "refund_order",
+            {
+                "order_id": "O10040",
+                "product_id": "P010",
+                "quantity": 1,
+                "condition": "defective_or_wrong",
+            },
+        )
+    assert result.is_error and "approved_amount_cents" in result.content[0].text
     assert refund_count(writable_db) == before

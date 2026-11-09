@@ -111,7 +111,11 @@ def build_server(session: Session) -> MCPServer:
 
     @server.tool(annotations=ISSUES_MONEY)
     def refund_order(
-        order_id: str, product_id: str, quantity: int, condition: RefundCondition
+        order_id: str,
+        product_id: str,
+        quantity: int,
+        condition: RefundCondition,
+        approved_amount_cents: int,
     ) -> Refund:
         """Issue a refund for returned units of one product of an order.
 
@@ -119,9 +123,19 @@ def build_server(session: Session) -> MCPServer:
         The amount is computed from the policy, never chosen by you. Only call it once the
         customer has asked for a refund of these units. Fails with the reason if a policy
         rule forbids the refund; nothing is written then.
+
+        `approved_amount_cents` is set by the application from the human approval: the
+        refund is issued only if the policy still gives exactly that amount.
         """
         try:
-            return tools.refund_order(session, order_id, product_id, quantity, condition)
+            return tools.refund_order(
+                session,
+                order_id,
+                product_id,
+                quantity,
+                condition,
+                approved_amount_cents=approved_amount_cents,
+            )
         except (NotFoundError, RefundRefusedError) as exc:
             raise ToolError(str(exc)) from exc
 

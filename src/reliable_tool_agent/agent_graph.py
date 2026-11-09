@@ -29,9 +29,10 @@ from typing import Annotated, TypedDict
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from reliable_tool_agent.agent_loop import (
+    APPROVED_AMOUNT,
     NEEDS_APPROVAL,
     NO_REVIEWER,
     AgentResult,
@@ -49,16 +50,28 @@ class AgentState(TypedDict):
     # Model calls in the current turn. No reducer: a value given replaces the old one, so
     # each new user message resets it and max_steps bounds one turn, not the conversation.
     steps: int
-    # The outcome of each sensitive call of the last model turn, by tool call id: the text
-    # the model reads if the call is not run, or None if the reviewer approved it.
-    blocked: dict[str, str | None]
+    # The outcome of each sensitive call of the last model turn, by tool call id: the
+    # amount the reviewer approved (int, the call will run), or the text the model reads
+    # instead (str, the call will not run).
+    decided: dict[str, int | str]
 
 
 class Decision(BaseModel):
-    """A human reviewer's answer to one approval request."""
+    """A human reviewer's answer to one approval request.
+
+    An approval is for an exact amount: the one the reviewer saw. The tool issues the
+    refund only if it still comes to that amount when it runs.
+    """
 
     approved: bool
+    amount_cents: int | None = None  # required when approved
     reason: str = ""
+
+    @model_validator(mode="after")
+    def _approval_names_an_amount(self) -> Decision:
+        if self.approved and self.amount_cents is None:
+            raise ValueError("an approval must give the approved amount_cents")
+        return self
 
 
 REJECTED = (
@@ -87,15 +100,18 @@ def build_graph(
         # On resume, LangGraph runs this node again from the top: everything before
         # interrupt() is repeated. The previews are read-only, so that is harmless; this
         # is why the sensitive call itself waits in the `tools` node, after the decision.
-        blocked: dict[str, str | None] = {}
+        # The repeated preview may differ from the one the reviewer saw: what counts is
+        # the amount in their decision, checked again by the tool when it runs.
+        decided: dict[str, int | str] = {}
         requests = []
         for call in sensitive_calls(state):
-            name, arguments = call["function"]["name"], call["function"]["arguments"]
+            name = call["function"]["name"]
+            arguments = model_arguments(call)
             preview = await toolbox.run(NEEDS_APPROVAL[name], arguments)
             if not preview.ok:
                 # Refused by the policy or badly formed: no need to bother a human, and
                 # the call is not run either (its refusal is the preview's).
-                blocked[call["id"]] = preview.text
+                decided[call["id"]] = preview.text
                 continue
             requests.append(
                 {
@@ -111,30 +127,32 @@ def build_graph(
                 raw = answers.get(request["tool_call_id"]) if isinstance(answers, dict) else None
                 decision = Decision.model_validate(raw) if raw is not None else None
                 if decision is not None and decision.approved:
-                    blocked[request["tool_call_id"]] = None
+                    decided[request["tool_call_id"]] = decision.amount_cents
                 else:  # rejected, or no decision for this call: never run by default
                     reason = decision.reason if decision and decision.reason else NO_DECISION
-                    blocked[request["tool_call_id"]] = REJECTED.format(
+                    decided[request["tool_call_id"]] = REJECTED.format(
                         name=request["tool"], reason=reason
                     )
-        return {"blocked": blocked}
+        return {"decided": decided}
 
     async def run_tools(state: AgentState) -> dict:
-        blocked = state.get("blocked", {}) if human_review else {}
+        decided = state.get("decided", {}) if human_review else {}
         results = []
         for call in state["messages"][-1]["tool_calls"]:
             name = call["function"]["name"]
+            outcome = decided.get(call["id"], REJECTED.format(name=name, reason=NO_DECISION))
             if name not in NEEDS_APPROVAL:
                 output = await toolbox.call(name, call["function"]["arguments"])
             elif not human_review:
                 output = NO_REVIEWER.format(name=name)
-            elif call["id"] in blocked and blocked[call["id"]] is None:  # approved
-                output = await toolbox.call(name, call["function"]["arguments"])
+            elif isinstance(outcome, int):  # approved: run it for the approved amount only
+                arguments = json.loads(model_arguments(call)) | {APPROVED_AMOUNT: outcome}
+                output = await toolbox.call(name, json.dumps(arguments))
             else:
-                output = blocked.get(call["id"]) or REJECTED.format(name=name, reason=NO_DECISION)
+                output = outcome
             # Tool output goes in a `tool` message: data the model reads, not instructions.
             results.append({"role": "tool", "tool_call_id": call["id"], "content": output})
-        return {"messages": results, "blocked": {}}
+        return {"messages": results, "decided": {}}
 
     def after_model(state: AgentState) -> str:
         if not state["messages"][-1].get("tool_calls"):
@@ -153,6 +171,22 @@ def build_graph(
     graph.add_edge("approval", "tools")
     graph.add_conditional_edges("tools", after_tools, ["model", END])
     return graph.compile(checkpointer=checkpointer)
+
+
+def model_arguments(call: dict) -> str:
+    """The call's arguments as the model wrote them, minus any approved amount it invented.
+
+    Left as they are if they are not a JSON object: the tool will report the error.
+    """
+    raw = call["function"]["arguments"]
+    try:
+        arguments = json.loads(raw or "{}")
+    except json.JSONDecodeError:
+        return raw
+    if isinstance(arguments, dict) and APPROVED_AMOUNT in arguments:
+        del arguments[APPROVED_AMOUNT]
+        return json.dumps(arguments)
+    return raw
 
 
 def sensitive_calls(state: AgentState) -> list[dict]:

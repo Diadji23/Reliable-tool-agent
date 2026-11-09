@@ -368,6 +368,8 @@ def refund_order(
     product_id: str,
     quantity: int,
     condition: RefundCondition,
+    *,
+    approved_amount_cents: int,
 ) -> Refund:
     """Issue a refund for returned units of one product of an order.
 
@@ -375,12 +377,24 @@ def refund_order(
     computes the amount. The checks and the insert share one `BEGIN IMMEDIATE` transaction,
     so two refunds issued at the same time cannot both pass the "already refunded" checks.
     The stored reason is built from the condition, never copied from model text.
+
+    `approved_amount_cents` is the amount a human approved. Time passes between the quote
+    they saw and this call (other refunds, the return window), so the amount is computed
+    again here and the refund is issued only if it is still exactly that amount: the
+    comparison and the insert are in the same transaction, with nothing in between.
     """
     conn = connect_for_refunds(session.db_path)
     try:
         conn.execute("BEGIN IMMEDIATE")
         try:
             quote = _quote(conn, session, order_id, product_id, quantity, condition)
+            if quote.amount_cents != approved_amount_cents:
+                raise RefundRefusedError(
+                    f"The refund is now {quote.amount_cents} cents, not the "
+                    f"{approved_amount_cents} cents that were approved (refunds or dates "
+                    "changed since). Nothing was issued. If the customer still wants it, "
+                    "call refund_order again: the reviewer will see the new amount."
+                )
             reason = f"{condition}: {quantity} x {product_id}"
             cursor = conn.execute(
                 "INSERT INTO refunds "

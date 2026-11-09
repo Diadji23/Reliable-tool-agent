@@ -107,7 +107,12 @@ def review(pending: list[dict]) -> dict[str, dict]:
             print(f"\n{GREY}(no decision: the remaining requests count as rejected){RESET}")
             break  # the agent treats a request without a decision as rejected
         if answer in ("y", "yes"):
-            decisions[request["tool_call_id"]] = {"approved": True}
+            # You approve the amount you were shown, nothing else: if the refund no longer
+            # comes to it when it runs, it is not issued.
+            decisions[request["tool_call_id"]] = {
+                "approved": True,
+                "amount_cents": q["amount_cents"],
+            }
         else:
             decisions[request["tool_call_id"]] = {
                 "approved": False,

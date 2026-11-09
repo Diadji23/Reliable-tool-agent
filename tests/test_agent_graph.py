@@ -8,6 +8,7 @@ import sqlite3
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 from mcp import Client
+from pydantic import ValidationError
 
 from reliable_tool_agent.agent_graph import GraphAgent
 from reliable_tool_agent.agent_loop import AssistantTurn, McpToolbox, ToolCall
@@ -180,7 +181,7 @@ async def test_refund_waits_for_the_reviewer_then_runs_when_approved(writable_db
         with pytest.raises(RuntimeError, match="awaits a reviewer"):
             await agent.ask("t1", "Hello?")
 
-        done = await agent.resume("t1", {"r1": {"approved": True}})
+        done = await agent.resume("t1", {"r1": {"approved": True, "amount_cents": 5090}})
 
     assert done.stop_reason == "answer" and done.answer == "Refunded."
     assert refunds_in(writable_db) == before + [("O10040", "P010", 5090)]
@@ -207,7 +208,7 @@ async def test_a_missing_decision_counts_as_a_rejection(writable_db):
     async with Client(build_server(Session("C0021", writable_db))) as client:
         agent = GraphAgent(model, McpToolbox(client), SYSTEM, InMemorySaver())
         await agent.ask("t1", "Refund my lamp.")
-        await agent.resume("t1", {"some-other-call": {"approved": True}})
+        await agent.resume("t1", {"some-other-call": {"approved": True, "amount_cents": 5090}})
 
     assert refunds_in(writable_db) == before
     assert "no decision was given" in model.seen[1][-1]["content"]
@@ -243,7 +244,7 @@ async def test_other_tools_of_the_same_turn_run_once_despite_the_pause(writable_
         toolbox = CountingToolbox(client)
         agent = GraphAgent(model, toolbox, SYSTEM, InMemorySaver())
         await agent.ask("t1", "Check my order and refund the lamp.")
-        await agent.resume("t1", {"r1": {"approved": True}})
+        await agent.resume("t1", {"r1": {"approved": True, "amount_cents": 5090}})
 
     assert toolbox.ran.count("get_order") == 1
     assert toolbox.ran.count("refund_order") == 1
@@ -262,7 +263,7 @@ async def test_the_reviewer_can_answer_from_a_new_agent(writable_db):
         later = GraphAgent(
             ScriptedModel([AssistantTurn("Refunded.")]), McpToolbox(client), SYSTEM, saver
         )
-        done = await later.resume("t1", {"r1": {"approved": True}})
+        done = await later.resume("t1", {"r1": {"approved": True, "amount_cents": 5090}})
     assert done.answer == "Refunded."
 
 
@@ -274,4 +275,63 @@ async def test_resume_without_a_pending_request_is_an_error(shop_db, owner_and_o
         )
         await agent.ask("t1", "Hello")
         with pytest.raises(RuntimeError, match="not waiting"):
+            await agent.resume("t1", {"r1": {"approved": True, "amount_cents": 5090}})
+
+
+async def test_an_approval_without_an_amount_is_refused_by_resume(writable_db):
+    model = ScriptedModel([AssistantTurn(None, [refund_call()])])
+    before = refunds_in(writable_db)
+    async with Client(build_server(Session("C0021", writable_db))) as client:
+        agent = GraphAgent(model, McpToolbox(client), SYSTEM, InMemorySaver())
+        await agent.ask("t1", "Refund my lamp.")
+        with pytest.raises(ValidationError, match="approved amount_cents"):
             await agent.resume("t1", {"r1": {"approved": True}})
+        assert (await agent._graph.aget_state({"configurable": {"thread_id": "t1"}})).next
+    assert refunds_in(writable_db) == before  # still paused, nothing written
+
+
+async def test_amount_changed_since_approval_is_not_issued(writable_db):
+    """Trou n°1 (TOCTOU): two conversations, both paused on quotes from the same moment.
+
+    The shipping fee is refunded once: after the pillow, the candle comes to 26.00, not
+    the 31.90 the reviewer approved. It must not be issued, and the model must be told.
+    """
+    candle = refund_call("c1", product_id="P019")
+    model = ScriptedModel(
+        [
+            AssistantTurn(None, [refund_call("p1")]),  # thread A
+            AssistantTurn(None, [candle]),  # thread B
+            AssistantTurn("Pillow refunded."),  # thread A, after approval
+            AssistantTurn("The amount changed, asking again."),  # thread B, after approval
+        ]
+    )
+    async with Client(build_server(Session("C0021", writable_db))) as client:
+        agent = GraphAgent(model, McpToolbox(client), SYSTEM, InMemorySaver())
+        a = await agent.ask("A", "Refund my broken pillow.")
+        b = await agent.ask("B", "Refund my broken candles.")
+        assert a.pending[0]["preview"]["amount_cents"] == 5090
+        assert b.pending[0]["preview"]["amount_cents"] == 3190  # shipping included, for now
+
+        await agent.resume("A", {"p1": {"approved": True, "amount_cents": 5090}})
+        await agent.resume("B", {"c1": {"approved": True, "amount_cents": 3190}})
+
+    assert [r[1] for r in refunds_in(writable_db) if r[0] == "O10040"] == ["P010"]
+    told = model.seen[3][-1]["content"]
+    assert "now 2600 cents, not the 3190 cents" in told
+
+
+async def test_an_amount_written_by_the_model_is_ignored(writable_db):
+    """The model does not see approved_amount_cents; if it sends one, the approval's wins."""
+    invented = refund_call(approved_amount_cents=999999)
+    model = ScriptedModel([AssistantTurn(None, [invented]), AssistantTurn("Refunded.")])
+    async with Client(build_server(Session("C0021", writable_db))) as client:
+        toolbox = McpToolbox(client)
+        specs = {s["function"]["name"]: s["function"]["parameters"] for s in await toolbox.specs()}
+        assert "approved_amount_cents" not in specs["refund_order"]["properties"]
+        assert "approved_amount_cents" not in specs["refund_order"]["required"]
+
+        agent = GraphAgent(model, toolbox, SYSTEM, InMemorySaver())
+        paused = await agent.ask("t1", "Refund my lamp.")
+        assert "approved_amount_cents" not in paused.pending[0]["arguments"]
+        await agent.resume("t1", {"r1": {"approved": True, "amount_cents": 5090}})
+    assert refunds_in(writable_db)[-1] == ("O10040", "P010", 5090)
