@@ -132,6 +132,9 @@ async def main() -> None:
     parser.add_argument("--thinking", action="store_true", help="let the model think aloud")
     args = parser.parse_args()
     logging.getLogger("httpx").setLevel(logging.WARNING)  # no line per HTTP request
+    # The in-process MCP server logs each refused tool call at INFO; the chat already shows
+    # the refusal as the tool result.
+    logging.getLogger("mcp").setLevel(logging.WARNING)
 
     try:
         httpx.get(args.base_url.removesuffix("/v1") + "/health", timeout=3).raise_for_status()
