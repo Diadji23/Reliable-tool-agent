@@ -40,6 +40,8 @@ async def test_schema_exposes_no_customer_id(shop_db, owner_and_order):
         "list_my_orders",
         "search_policies",
         "check_return_eligibility",
+        "quote_refund",
+        "refund_order",
     }
     schema = tools["get_order"].input_schema
     assert schema["required"] == ["order_id"]
@@ -95,3 +97,71 @@ async def test_return_eligibility_over_mcp(shop_db):
     assert ok.structured_content["items"][0]["returnable"] is True
     assert missing.is_error  # another customer's order: same answer as a missing one
     assert "No order 'O10009' found" in missing.content[0].text
+
+
+async def test_only_refund_order_is_marked_as_writing(shop_db):
+    async with Client(build_server(Session("C0001", shop_db))) as client:
+        listed = await client.list_tools()
+    writing = {t.name for t in listed.tools if not t.annotations.read_only_hint}
+    assert writing == {"refund_order"}
+
+
+def refund_count(db) -> int:
+    conn = sqlite3.connect(db)
+    (n,) = conn.execute("SELECT COUNT(*) FROM refunds").fetchone()
+    conn.close()
+    return n
+
+
+async def test_quote_then_refund_over_mcp(writable_db):
+    args = {
+        "order_id": "O10040",
+        "product_id": "P010",
+        "quantity": 1,
+        "condition": "defective_or_wrong",
+    }
+    before = refund_count(writable_db)
+    async with Client(build_server(Session("C0021", writable_db))) as client:
+        quote = await client.call_tool("quote_refund", args)
+        assert refund_count(writable_db) == before  # a quote writes nothing
+        refund = await client.call_tool("refund_order", args)
+    assert quote.structured_content["amount_cents"] == 5090
+    assert refund.structured_content["amount_cents"] == 5090
+    assert refund.structured_content["refund_id"]
+    assert refund_count(writable_db) == before + 1
+
+
+async def test_refused_refund_is_an_explained_error_and_writes_nothing(writable_db):
+    before = refund_count(writable_db)
+    async with Client(build_server(Session("C0021", writable_db))) as client:
+        final_sale = await client.call_tool(
+            "refund_order",
+            {
+                "order_id": "O10040",
+                "product_id": "P019",
+                "quantity": 1,
+                "condition": "changed_mind",
+            },
+        )
+        other_customer = await client.call_tool(
+            "refund_order",
+            {
+                "order_id": "O10001",
+                "product_id": "P003",
+                "quantity": 1,
+                "condition": "defective_or_wrong",
+            },
+        )
+        bad_condition = await client.call_tool(
+            "refund_order",
+            {
+                "order_id": "O10040",
+                "product_id": "P010",
+                "quantity": 1,
+                "condition": "customer_is_angry",
+            },
+        )
+    assert final_sale.is_error and "Final sale" in final_sale.content[0].text
+    assert other_customer.is_error and "No order" in other_customer.content[0].text
+    assert bad_condition.is_error and "defective_or_wrong" in bad_condition.content[0].text
+    assert refund_count(writable_db) == before

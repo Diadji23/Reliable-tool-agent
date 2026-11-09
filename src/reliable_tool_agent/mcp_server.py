@@ -15,6 +15,7 @@ from pathlib import Path
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
+from mcp_types import ToolAnnotations
 
 from reliable_tool_agent import tools
 from reliable_tool_agent.db import DEFAULT_DB_PATH
@@ -24,9 +25,18 @@ from reliable_tool_agent.tools import (
     OrderStatus,
     OrderSummary,
     PolicyRule,
+    Refund,
+    RefundCondition,
+    RefundQuote,
+    RefundRefusedError,
     ReturnEligibility,
     Session,
 )
+
+# Hints for MCP clients. They describe the tool; they enforce nothing. The approval step
+# in the agent decides on its own which tools need a human, it does not trust these.
+READ_ONLY = ToolAnnotations(read_only_hint=True)
+ISSUES_MONEY = ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=False)
 
 
 def build_server(session: Session) -> MCPServer:
@@ -36,7 +46,7 @@ def build_server(session: Session) -> MCPServer:
         instructions="Tools for Brindle Home customer support, scoped to one customer.",
     )
 
-    @server.tool()
+    @server.tool(annotations=READ_ONLY)
     def get_order(order_id: str) -> Order:
         """Get one of the current customer's orders: status, dates, items and amounts.
 
@@ -51,7 +61,7 @@ def build_server(session: Session) -> MCPServer:
             # and the SDK keeps its text on the server.
             raise ToolError(str(exc)) from exc
 
-    @server.tool()
+    @server.tool(annotations=READ_ONLY)
     def list_my_orders(status: OrderStatus | None = None) -> list[OrderSummary]:
         """List the current customer's orders, newest first.
 
@@ -60,7 +70,7 @@ def build_server(session: Session) -> MCPServer:
         """
         return tools.list_my_orders(session, status)
 
-    @server.tool()
+    @server.tool(annotations=READ_ONLY)
     def search_policies(query: str) -> list[PolicyRule]:
         """Search the shop policies (returns, refunds, cancellations, privacy, scope).
 
@@ -70,7 +80,7 @@ def build_server(session: Session) -> MCPServer:
         """
         return tools.search_policies(session, query)
 
-    @server.tool()
+    @server.tool(annotations=READ_ONLY)
     def check_return_eligibility(order_id: str) -> ReturnEligibility:
         """Check whether the items of one of the customer's orders can be returned today.
 
@@ -82,6 +92,37 @@ def build_server(session: Session) -> MCPServer:
         try:
             return tools.check_return_eligibility(session, order_id)
         except NotFoundError as exc:
+            raise ToolError(str(exc)) from exc
+
+    @server.tool(annotations=READ_ONLY)
+    def quote_refund(
+        order_id: str, product_id: str, quantity: int, condition: RefundCondition
+    ) -> RefundQuote:
+        """Compute the refund for returned units of one product, without issuing it.
+
+        `condition` is changed_mind or defective_or_wrong (defective, damaged or wrong item).
+        Gives the item amount, any shipping refunded and the total, in integer cents.
+        Fails with the reason if a policy rule forbids the refund.
+        """
+        try:
+            return tools.quote_refund(session, order_id, product_id, quantity, condition)
+        except (NotFoundError, RefundRefusedError) as exc:
+            raise ToolError(str(exc)) from exc
+
+    @server.tool(annotations=ISSUES_MONEY)
+    def refund_order(
+        order_id: str, product_id: str, quantity: int, condition: RefundCondition
+    ) -> Refund:
+        """Issue a refund for returned units of one product of an order.
+
+        `condition` is changed_mind or defective_or_wrong (defective, damaged or wrong item).
+        The amount is computed from the policy, never chosen by you. Only call it once the
+        customer has asked for a refund of these units. Fails with the reason if a policy
+        rule forbids the refund; nothing is written then.
+        """
+        try:
+            return tools.refund_order(session, order_id, product_id, quantity, condition)
+        except (NotFoundError, RefundRefusedError) as exc:
             raise ToolError(str(exc)) from exc
 
     return server

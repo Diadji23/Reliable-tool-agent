@@ -91,6 +91,8 @@ async def test_tool_specs_are_translated_for_the_model(shop_db, owner_and_order)
         "list_my_orders",
         "search_policies",
         "check_return_eligibility",
+        "quote_refund",
+        "refund_order",
     }
     get_order = by_name["get_order"]
     assert get_order["type"] == "function"
