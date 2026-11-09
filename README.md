@@ -56,7 +56,7 @@ use them.
 | `search_policies` | `query` | up to 3 numbered policy rules, or an empty list |
 | `check_return_eligibility` | `order_id` | per item: returnable or not, returnable if defective or wrong, the reason, the last day of the window |
 | `quote_refund` | `order_id`, `product_id`, `quantity`, `condition` | the refund the policy allows (item, shipping, total), without issuing it |
-| `refund_order` † | same as `quote_refund` | the refund issued, with its id |
+| `refund_order` † | same as `quote_refund`, plus `approved_amount_cents` (filled by the agent, hidden from the model) | the refund issued, with its id |
 
 † Sensitive: runs only after a human approves it (see [Human approval](#human-approval-before-a-refund)).
 
@@ -171,6 +171,18 @@ model --(refund_order call)--> approval --(pause: interrupt)--> reviewer decides
   write. A test checks that another tool called in the same turn runs once.
 - **The reviewer is asked only when it matters.** A refund the policy already refuses
   (final sale, window ended, already refunded) gets its refusal straight back to the model.
+- **An approval is for an exact amount.** The quote the reviewer sees and the refund are
+  computed at different times, and the amount can change in between: the shipping fee is
+  refunded once, so with two refunds pending on the same order, the second one comes to
+  less than the quote that was approved (a test reproduces it: 31.90 approved, 26.00 by the
+  time it runs). The decision therefore names the amount, the agent passes it to
+  `refund_order`, and the tool compares it with the recomputed amount **in the same
+  transaction as the insert**. If they differ, nothing is issued and the model is told to
+  ask again. The model never sees this argument; a value it sends is replaced.
+
+**Known limits** (for when the web API brings real reviewers): the refund does not record
+who approved it; a pending request never expires; while a thread waits for a decision,
+the customer cannot send another message.
 
 **In the chat** (real model, 2026-11-09): the model quoted a refund and asked the customer
 to confirm before calling `refund_order`; approved, the refund was written with the
