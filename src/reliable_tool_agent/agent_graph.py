@@ -26,6 +26,8 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 
 from reliable_tool_agent.agent_loop import (
+    NEEDS_APPROVAL,
+    NO_REVIEWER,
     AgentResult,
     ChatModel,
     McpToolbox,
@@ -57,7 +59,11 @@ def build_graph(
     async def run_tools(state: AgentState) -> dict:
         results = []
         for call in state["messages"][-1]["tool_calls"]:
-            output = await toolbox.call(call["function"]["name"], call["function"]["arguments"])
+            name = call["function"]["name"]
+            if name in NEEDS_APPROVAL:  # no approval step yet: never run it
+                output = NO_REVIEWER.format(name=name)
+            else:
+                output = await toolbox.call(name, call["function"]["arguments"])
             # Tool output goes in a `tool` message: data the model reads, not instructions.
             results.append({"role": "tool", "tool_call_id": call["id"], "content": output})
         return {"messages": results}

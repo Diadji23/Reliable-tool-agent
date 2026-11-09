@@ -100,6 +100,19 @@ class McpToolbox:
         return json.dumps(result.structured_content)
 
 
+# --- Sensitive tools -------------------------------------------------------------------
+
+# Tools that change something a customer cannot undo, each with the read-only tool that
+# shows a human what it would do. Decided here, in the agent: MCP annotations are hints
+# written by the server, not a security boundary.
+NEEDS_APPROVAL: dict[str, str] = {"refund_order": "quote_refund"}
+
+NO_REVIEWER = (
+    "Error: {name} needs a human reviewer's approval, and none is available here. "
+    "It was not run. Tell the customer their request will be handled by the team."
+)
+
+
 # --- The loop --------------------------------------------------------------------------
 
 
@@ -132,7 +145,10 @@ async def run_agent(
             return AgentResult(turn.content, "answer", step, messages)
 
         for call in turn.tool_calls:
-            output = await toolbox.call(call.name, call.arguments)
+            if call.name in NEEDS_APPROVAL:  # this loop has no human to ask: never run it
+                output = NO_REVIEWER.format(name=call.name)
+            else:
+                output = await toolbox.call(call.name, call.arguments)
             # Tool output goes in a `tool` message, never in the system or user role:
             # it is data the model reads, not instructions it must follow.
             messages.append({"role": "tool", "tool_call_id": call.id, "content": output})

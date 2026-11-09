@@ -45,6 +45,13 @@ def call(name: str, arguments: str, id: str = "call_1") -> AssistantTurn:
     return AssistantTurn(None, [ToolCall(id, name, arguments)])
 
 
+def refund_count(db) -> int:
+    conn = sqlite3.connect(db)
+    (n,) = conn.execute("SELECT COUNT(*) FROM refunds").fetchone()
+    conn.close()
+    return n
+
+
 async def run(runner, shop_db, customer_id, turns, max_steps=8):
     model = ScriptedModel(turns)
     async with Client(build_server(Session(customer_id, shop_db))) as client:
@@ -147,3 +154,26 @@ async def test_loop_stops_after_max_steps(runner, shop_db, owner_and_order):
     assert result.stop_reason == "max_steps"
     assert result.answer is None
     assert result.steps == 3
+
+
+async def test_sensitive_tool_is_never_run_without_a_reviewer(runner, writable_db):
+    """A valid refund the policy allows: still refused, because nobody can approve it."""
+    refund = json.dumps(
+        {
+            "order_id": "O10040",
+            "product_id": "P010",
+            "quantity": 1,
+            "condition": "defective_or_wrong",
+        }
+    )
+    before = refund_count(writable_db)
+    result, model = await run(
+        runner,
+        writable_db,
+        "C0021",
+        [call("refund_order", refund), AssistantTurn("The team will handle it.")],
+    )
+    (tool,) = tool_messages(result)
+    assert "needs a human reviewer's approval" in tool["content"]
+    assert result.stop_reason == "answer"  # the model was told, and could answer
+    assert refund_count(writable_db) == before
