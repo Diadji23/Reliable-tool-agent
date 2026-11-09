@@ -10,6 +10,10 @@ Then:
 
 Commands: /orders (the customer's orders, read directly, without the model), /new (new
 conversation), /trace (whole conversation as the model sees it), /quit.
+
+Before a refund is issued, the chat stops and you answer as the support team reviewer:
+approve, or reject with a reason. The chat works on a temporary copy of the shop
+database, so refunds you approve never change data/shop.db (used by the experiments).
 """
 
 from __future__ import annotations
@@ -17,7 +21,10 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import shutil
+import tempfile
 import time
+from pathlib import Path
 
 import httpx
 from langgraph.checkpoint.memory import InMemorySaver
@@ -25,12 +32,14 @@ from mcp import Client
 
 from reliable_tool_agent import tools
 from reliable_tool_agent.agent_graph import GraphAgent
-from reliable_tool_agent.agent_loop import McpToolbox
+from reliable_tool_agent.agent_loop import AgentResult, McpToolbox
+from reliable_tool_agent.db import DEFAULT_DB_PATH
 from reliable_tool_agent.llama_server import LlamaServerModel
 from reliable_tool_agent.mcp_server import build_server
 from reliable_tool_agent.prompts import system_prompt
 
 GREY, CYAN, YELLOW, BOLD, RESET = "\033[90m", "\033[36m", "\033[33m", "\033[1m", "\033[0m"
+RED = "\033[31m"
 
 
 class CountingModel:
@@ -73,11 +82,45 @@ def show_trace(messages: list[dict]) -> None:
             print(f"{YELLOW}[{role}]{RESET} (tool call) {f['name']} {f['arguments']}")
 
 
-def show_orders(customer_id: str) -> None:
-    for o in tools.list_my_orders(tools.Session(customer_id)):
+def euros(cents: int) -> str:
+    return f"{cents / 100:.2f} EUR"
+
+
+def review(pending: list[dict]) -> dict[str, dict]:
+    """Ask the person at the terminal, as the support team, to decide each request."""
+    decisions = {}
+    for request in pending:
+        q = request["preview"]
+        print(f"\n{RED}{BOLD}APPROVAL NEEDED{RESET} {RED}(you are the support team){RESET}")
+        print(f"  {request['tool']}: order {q['order_id']}, {q['quantity']} x {q['product_name']}")
+        print(f"  condition: {q['condition']}")
+        print(
+            f"  amount:    {euros(q['amount_cents'])} = {euros(q['item_cents'])} item(s) "
+            f"+ {euros(q['shipping_cents'])} shipping"
+        )
+        if q["already_refunded_cents"]:
+            print(f"  already refunded on this order: {euros(q['already_refunded_cents'])}")
+        try:
+            answer = input(f"{BOLD}approve? [y/N]{RESET} ").strip().lower()
+            reason = "" if answer in ("y", "yes") else input(f"{BOLD}reason:{RESET} ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print(f"\n{GREY}(no decision: the remaining requests count as rejected){RESET}")
+            break  # the agent treats a request without a decision as rejected
+        if answer in ("y", "yes"):
+            decisions[request["tool_call_id"]] = {"approved": True}
+        else:
+            decisions[request["tool_call_id"]] = {
+                "approved": False,
+                "reason": reason or "not approved by the support team",
+            }
+    return decisions
+
+
+def show_orders(session: tools.Session) -> None:
+    for o in tools.list_my_orders(session):
         print(
             f"{GREY}  {o.id}  {o.status:<10} ordered {o.ordered_at}  "
-            f"{o.total_cents / 100:.2f} EUR  {o.n_items} item(s){RESET}"
+            f"{euros(o.total_cents)}  {o.n_items} item(s){RESET}"
         )
 
 
@@ -100,7 +143,16 @@ async def main() -> None:
         return
 
     model = CountingModel(LlamaServerModel(base_url=args.base_url, thinking=args.thinking))
-    async with Client(build_server(tools.Session(args.customer))) as client:
+    workdir = Path(tempfile.mkdtemp(prefix="brindle-chat-"))
+    try:
+        await chat(args, model, workdir)
+    finally:
+        shutil.rmtree(workdir)
+
+
+async def chat(args: argparse.Namespace, model: CountingModel, workdir: Path) -> None:
+    session = tools.Session(args.customer, shutil.copyfile(DEFAULT_DB_PATH, workdir / "shop.db"))
+    async with Client(build_server(session)) as client:
         agent = GraphAgent(
             model, McpToolbox(client), system_prompt(), InMemorySaver(), args.max_steps
         )
@@ -109,6 +161,7 @@ async def main() -> None:
             f"{BOLD}Brindle Home support{RESET} - customer {args.customer}. "
             "Commands: /orders /new /trace /quit"
         )
+        print(f"{GREY}(working on a copy of the shop database: {session.db_path}){RESET}")
         while True:
             try:
                 text = input(f"\n{BOLD}you>{RESET} ").strip()
@@ -119,7 +172,7 @@ async def main() -> None:
             if text == "/quit":
                 break
             if text == "/orders":
-                show_orders(args.customer)
+                show_orders(session)
                 continue
             if text == "/new":
                 n_thread += 1
@@ -131,9 +184,17 @@ async def main() -> None:
                 continue
 
             model.prompt_tokens = model.completion_tokens = 0
+            seconds = 0.0  # agent time only: the time you spend deciding is not counted
             start = time.perf_counter()
-            result = await agent.ask(thread, text)
-            seconds = time.perf_counter() - start
+            result: AgentResult = await agent.ask(thread, text)
+            seconds += time.perf_counter() - start
+            while result.stop_reason == "awaiting_approval":
+                show_turn(result.messages[seen:])
+                seen = len(result.messages)
+                decisions = review(result.pending)
+                start = time.perf_counter()
+                result = await agent.resume(thread, decisions)
+                seconds += time.perf_counter() - start
             show_turn(result.messages[seen:])
             seen = len(result.messages)
             print(f"\n{CYAN}agent>{RESET} {result.answer or '(no answer: step budget used up)'}")
