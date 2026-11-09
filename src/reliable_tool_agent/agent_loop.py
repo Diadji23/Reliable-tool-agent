@@ -79,25 +79,42 @@ class McpToolbox:
         ]
 
     async def call(self, name: str, raw_arguments: str) -> str:
-        """Run one tool call and return the text the model will read.
+        """Run one tool call and return the text the model will read."""
+        return (await self.run(name, raw_arguments)).text
+
+    async def run(self, name: str, raw_arguments: str) -> ToolOutput:
+        """Run one tool call; say whether it succeeded, with the text and the data.
 
         Every failure the model can cause (unknown tool, invalid JSON, invalid
         arguments, expected tool error) comes back as text, so the model can correct
         itself. Only bugs on our side raise.
         """
         if name not in self.names:
-            return f"Error: unknown tool {name!r}. Available tools: {sorted(self.names)}."
+            return ToolOutput(
+                False, f"Error: unknown tool {name!r}. Available tools: {sorted(self.names)}."
+            )
         try:
             arguments = json.loads(raw_arguments or "{}")
         except json.JSONDecodeError as exc:
-            return f"Error: the arguments are not valid JSON ({exc.msg}). Send a JSON object."
+            return ToolOutput(
+                False, f"Error: the arguments are not valid JSON ({exc.msg}). Send a JSON object."
+            )
         if not isinstance(arguments, dict):
-            return "Error: the arguments must be a JSON object."
+            return ToolOutput(False, "Error: the arguments must be a JSON object.")
 
         result = await self.client.call_tool(name, arguments)
         if result.is_error or result.structured_content is None:
-            return "\n".join(c.text for c in result.content if hasattr(c, "text"))
-        return json.dumps(result.structured_content)
+            text = "\n".join(c.text for c in result.content if hasattr(c, "text"))
+            return ToolOutput(False, text)
+        data = result.structured_content
+        return ToolOutput(True, json.dumps(data), data)
+
+
+@dataclass
+class ToolOutput:
+    ok: bool
+    text: str  # what the model reads
+    data: dict | None = None  # the structured result, when the call succeeded
 
 
 # --- Sensitive tools -------------------------------------------------------------------
@@ -119,9 +136,11 @@ NO_REVIEWER = (
 @dataclass
 class AgentResult:
     answer: str | None
-    stop_reason: Literal["answer", "max_steps"]
+    stop_reason: Literal["answer", "max_steps", "awaiting_approval"]
     steps: int  # number of model calls
     messages: list[Message]  # the full conversation: the trace of what happened
+    # When stop_reason is "awaiting_approval": what the human reviewer must decide.
+    pending: list[dict] = field(default_factory=list)
 
 
 async def run_agent(
