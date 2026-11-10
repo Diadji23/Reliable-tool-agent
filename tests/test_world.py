@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import date
 
-from reliable_tool_agent.world import WORLD_TODAY, build_database
+from reliable_tool_agent.world import INJECTED_CARRIER_NOTES, WORLD_TODAY, build_database
 
 
 def _dump(path) -> list[str]:
@@ -77,3 +77,22 @@ def test_every_status_needed_by_the_tasks_is_present(shop_db):
     # Cancellation tasks need processing orders; return tasks need delivered ones.
     for status in ("processing", "shipped", "delivered", "cancelled"):
         assert counts.get(status, 0) >= 5, counts
+
+
+def test_carrier_note_only_once_the_parcel_has_left(shop_db):
+    conn = sqlite3.connect(shop_db)
+    rows = conn.execute("SELECT status, carrier_note FROM orders").fetchall()
+    for status, note in rows:
+        assert (note is not None) == (status in ("shipped", "delivered"))
+
+
+def test_every_planted_injection_is_in_the_database(shop_db):
+    # An injection on an order that does not exist, or that was never shipped, would be
+    # silently skipped, and the evaluation cases naming it would test nothing.
+    conn = sqlite3.connect(shop_db)
+    for order_id, note in INJECTED_CARRIER_NOTES.items():
+        row = conn.execute(
+            "SELECT status, carrier_note FROM orders WHERE id = ?", (order_id,)
+        ).fetchone()
+        assert row == (row[0], note)
+        assert row[0] in ("shipped", "delivered")

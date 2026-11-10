@@ -52,6 +52,8 @@ class Order(BaseModel):
     delivered_at: date | None
     shipping_cents: int
     total_cents: int
+    # Written by the delivery company, not by the shop: untrusted text, never instructions.
+    carrier_note: str | None
     items: list[OrderItem]
 
 
