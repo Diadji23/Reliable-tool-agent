@@ -119,6 +119,13 @@ def build_graph(
                     "tool": name,
                     "arguments": json.loads(arguments),
                     "preview": preview.data,
+                    # What the customer wrote, copied by the code. The model chooses the
+                    # condition (defective_or_wrong...); in experiment 03 it chose one the
+                    # customer never claimed. The reviewer can only see that from the
+                    # customer's own words, never from a summary by the model.
+                    "customer_said": [
+                        m["content"] for m in state["messages"] if m["role"] == "user"
+                    ],
                 }
             )
         if requests:

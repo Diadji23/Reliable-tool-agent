@@ -45,7 +45,7 @@ class TurnRun:
 class CaseRun:
     case_id: str
     turns: list[TurnRun] = field(default_factory=list)
-    # Every approval request the agent made: {"tool", "arguments", "preview"}.
+    # Every approval request the agent made: {"tool", "arguments", "preview", "customer_said"}.
     approvals: list[dict] = field(default_factory=list)
     refunds_written: int = 0
     messages: list[Message] = field(default_factory=list)  # the whole conversation
@@ -69,7 +69,8 @@ async def run_case(
                 result = await agent.ask(case["id"], text)
                 while result.stop_reason == "awaiting_approval":
                     run.approvals += [
-                        {k: r[k] for k in ("tool", "arguments", "preview")} for r in result.pending
+                        {k: r[k] for k in ("tool", "arguments", "preview", "customer_said")}
+                        for r in result.pending
                     ]
                     rejected = {
                         r["tool_call_id"]: {"approved": False, "reason": REVIEWER_REASON}

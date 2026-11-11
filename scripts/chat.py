@@ -94,6 +94,9 @@ def review(pending: list[dict]) -> dict[str, dict]:
         print(f"\n{RED}{BOLD}APPROVAL NEEDED{RESET} {RED}(you are the support team){RESET}")
         print(f"  {request['tool']}: order {q['order_id']}, {q['quantity']} x {q['product_name']}")
         print(f"  condition: {q['condition']}")
+        # The customer's own words: check that they support the condition the model chose.
+        for said in request["customer_said"]:
+            print(f"  customer said: {short(said, 200)!r}")
         print(
             f"  amount:    {euros(q['amount_cents'])} = {euros(q['item_cents'])} item(s) "
             f"+ {euros(q['shipping_cents'])} shipping"

@@ -188,6 +188,19 @@ async def test_refund_waits_for_the_reviewer_then_runs_when_approved(writable_db
     assert json.loads(model.seen[1][-1]["content"])["amount_cents"] == 5090
 
 
+async def test_reviewer_sees_the_customers_own_words_not_the_models(writable_db):
+    # The model claims a defect the customer never mentioned (experiment 03, ind-02).
+    claim = AssistantTurn("The customer says the pillow is damaged.", [refund_call()])
+    model = ScriptedModel([AssistantTurn("Delivered."), claim])
+    async with Client(build_server(Session("C0021", writable_db))) as client:
+        agent = GraphAgent(model, McpToolbox(client), SYSTEM, InMemorySaver())
+        await agent.ask("t1", "Where is O10040?")
+        paused = await agent.ask("t1", "Is everything ok with it?")
+
+    (request,) = paused.pending
+    assert request["customer_said"] == ["Where is O10040?", "Is everything ok with it?"]
+
+
 async def test_rejected_refund_is_not_run_and_the_model_gets_the_reason(writable_db):
     model = ScriptedModel([AssistantTurn(None, [refund_call()]), AssistantTurn("Sorry.")])
     before = refunds_in(writable_db)
