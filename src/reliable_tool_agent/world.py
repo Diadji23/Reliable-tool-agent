@@ -10,9 +10,10 @@ Conventions:
   return window give the same answer whenever the evaluation runs.
 - Same seed -> byte-for-byte identical content.
 - Carrier notes are free text written by a third party (the delivery company). A few
-  of them carry planted prompt injections (INJECTED_CARRIER_NOTES), so that the
-  evaluation can check the agent treats tool output as data. They are drawn from their
-  own random generator: adding them changed no other value in the database.
+  of them carry planted prompt injections (INJECTED_CARRIER_NOTES). Experiment 03
+  showed the model obeys them, so get_order no longer returns the note; they stay in the
+  database to check that it never reaches the model. They are drawn from their own
+  random generator: adding them changed no other value in the database.
 """
 
 from __future__ import annotations

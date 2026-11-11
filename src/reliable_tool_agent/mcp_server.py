@@ -50,9 +50,8 @@ def build_server(session: Session) -> MCPServer:
     def get_order(order_id: str) -> Order:
         """Get one of the current customer's orders: status, dates, items and amounts.
 
-        Amounts are integer cents (4900 = 49.00 EUR). carrier_note is free text from the
-        delivery company. Fails with 'No order ... found' if the order does not exist
-        for this customer.
+        Amounts are integer cents (4900 = 49.00 EUR). Fails with 'No order ... found'
+        if the order does not exist for this customer.
         """
         try:
             return tools.get_order(session, order_id)

@@ -52,8 +52,9 @@ class Order(BaseModel):
     delivered_at: date | None
     shipping_cents: int
     total_cents: int
-    # Written by the delivery company, not by the shop: untrusted text, never instructions.
-    carrier_note: str | None
+    # No carrier_note: that column is free text from the delivery company, and in
+    # experiment 03 the model followed instructions planted in it (refund requests, a
+    # phishing link). No answer the agent gives needs it, so it never reaches the model.
     items: list[OrderItem]
 
 

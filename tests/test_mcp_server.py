@@ -49,6 +49,15 @@ async def test_schema_exposes_no_customer_id(shop_db, owner_and_order):
         assert "customer" not in str(tool.input_schema).lower()
 
 
+async def test_carrier_note_is_not_in_what_the_model_receives(shop_db):
+    # What the client gets is what the model reads: text content and structured content.
+    async with Client(build_server(Session("C0013", shop_db))) as client:
+        result = await client.call_tool("get_order", {"order_id": "O10021"})
+    assert not result.is_error
+    seen = result.content[0].text + str(result.structured_content)
+    assert "carrier" not in seen.lower() and "refund_order" not in seen
+
+
 async def test_invalid_argument_is_rejected_with_a_reason(shop_db, owner_and_order):
     """Pydantic checks the model's arguments before the tool runs."""
     owner, _, _ = owner_and_order
