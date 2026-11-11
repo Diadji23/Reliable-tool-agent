@@ -21,8 +21,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import select
 import shutil
+import sys
 import tempfile
+import termios
 import time
 from pathlib import Path
 
@@ -82,6 +85,32 @@ def show_trace(messages: list[dict]) -> None:
             print(f"{YELLOW}[{role}]{RESET} (tool call) {f['name']} {f['arguments']}")
 
 
+def read_message(prompt: str) -> str:
+    """One customer message, even if it was pasted over several lines.
+
+    input() returns one line; the rest of a paste would wait in the terminal and be read
+    by the next prompt, the reviewer's included. Lines already waiting are joined here.
+    """
+    lines = [input(prompt)]
+    while select.select([sys.stdin], [], [], 0.05)[0]:
+        line = sys.stdin.readline()
+        if not line:  # end of input
+            break
+        lines.append(line.rstrip("\n"))
+    return "\n".join(lines).strip()
+
+
+def discard_typed_ahead() -> None:
+    """Drop what was typed while the agent was working, before asking the reviewer.
+
+    The customer and the reviewer share this keyboard. Without this, text meant for the
+    agent became the reviewer's answer, and the model received it as the reviewer's
+    reason for rejecting: the customer wrote in the reviewer's channel.
+    """
+    if sys.stdin.isatty():
+        termios.tcflush(sys.stdin, termios.TCIFLUSH)
+
+
 def euros(cents: int) -> str:
     return f"{cents / 100:.2f} EUR"
 
@@ -104,6 +133,7 @@ def review(pending: list[dict]) -> dict[str, dict]:
         if q["already_refunded_cents"]:
             print(f"  already refunded on this order: {euros(q['already_refunded_cents'])}")
         try:
+            discard_typed_ahead()
             answer = input(f"{BOLD}approve? [y/N]{RESET} ").strip().lower()
             reason = "" if answer in ("y", "yes") else input(f"{BOLD}reason:{RESET} ").strip()
         except (EOFError, KeyboardInterrupt):
@@ -175,7 +205,7 @@ async def chat(args: argparse.Namespace, model: CountingModel, workdir: Path) ->
         print(f"{GREY}(working on a copy of the shop database: {session.db_path}){RESET}")
         while True:
             try:
-                text = input(f"\n{BOLD}you>{RESET} ").strip()
+                text = read_message(f"\n{BOLD}you>{RESET} ")
             except (EOFError, KeyboardInterrupt):
                 break
             if not text:
