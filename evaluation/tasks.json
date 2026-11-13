@@ -1,5 +1,5 @@
 {
-  "about": "Reference tasks: what customers normally ask. Each runs as one conversation on a private copy of the database. 'reviewer' lists the human decisions, in the order the approval requests arrive ({\"approved\": true} approves the amount shown; a request beyond the list is rejected). Deterministic check: the refunds written during the run must be exactly 'expected_refunds' (order, product, quantity, amount; amounts computed by hand from data/policies; 'condition' documents the case and lets a test cross-check the amount with the code). Every turn must get an answer. 'expected' describes the answer, for a reader or the judge. Cases found in chat sessions (evaluation/cases_from_chat.json) are added to this set by the loader.",
+  "about": "Reference tasks: what customers normally ask. Each runs as one conversation on a private copy of the database. 'reviewer' lists the human decisions, in the order the approval requests arrive ({\"approved\": true} approves the amount shown; a request beyond the list is rejected). Deterministic check: the refunds written during the run must be exactly 'expected_refunds' (order, product, quantity, amount; amounts computed by hand from data/policies; 'condition' documents the case and lets a test cross-check the amount with the code). Every turn must get an answer. 'if_asked': if the agent's last answer asks a question (a confirmation the customer already gave), the simulated customer sends this reply once more; asking first is accepted, not counted as a failure. 'expected' describes the answer, for a reader or the judge. Cases found in chat sessions (evaluation/cases_from_chat.json) are added to this set by the loader.",
   "tasks": [
     {
       "id": "t-status-delivered",
@@ -110,6 +110,7 @@
       "category": "refund",
       "customer": "C0039",
       "turns": ["I changed my mind about one of the two mixing bowl sets in O10070. Please refund one."],
+      "if_asked": "Yes, please go ahead.",
       "reviewer": [{"approved": true}],
       "expected_refunds": [{"order_id": "O10070", "product_id": "P004", "quantity": 1, "amount_cents": 3800, "condition": "changed_mind"}],
       "expected": "Refund of 38.00 EUR for one set (no shipping refund for a change of mind), after approval."
@@ -119,6 +120,7 @@
       "category": "refund",
       "customer": "C0022",
       "turns": ["My memory foam pillow from O10041 arrived torn. Please refund it."],
+      "if_asked": "Yes, please go ahead.",
       "reviewer": [{"approved": true}],
       "expected_refunds": [{"order_id": "O10041", "product_id": "P010", "quantity": 1, "amount_cents": 5090, "condition": "defective_or_wrong"}],
       "expected": "Refund of 50.90 EUR: 45.00 item + 5.90 shipping (defective item), after approval."
@@ -128,6 +130,7 @@
       "category": "refund",
       "customer": "C0035",
       "turns": ["The weighted blanket from O10065 arrived with a broken seam. Refund please."],
+      "if_asked": "Yes, please go ahead.",
       "reviewer": [{"approved": true}],
       "expected_refunds": [{"order_id": "O10065", "product_id": "P011", "quantity": 1, "amount_cents": 11900, "condition": "defective_or_wrong"}],
       "expected": "Final sale, but defective: refundable. 119.00 EUR (free shipping on this order), after approval."
@@ -146,6 +149,7 @@
       "category": "refund",
       "customer": "C0018",
       "turns": ["Please refund the other LED floor lamp from O10032, I changed my mind."],
+      "if_asked": "Yes, please go ahead.",
       "reviewer": [{"approved": true}],
       "expected_refunds": [{"order_id": "O10032", "product_id": "P014", "quantity": 1, "amount_cents": 14500, "condition": "changed_mind"}],
       "expected": "One of two lamps already refunded; the second one: 145.00 EUR, after approval."
@@ -174,6 +178,7 @@
         "Where is my order O10090?",
         "The stoneware vase in it arrived chipped. I'd like a refund."
       ],
+      "if_asked": "Yes, please go ahead.",
       "reviewer": [{"approved": true}],
       "expected_refunds": [{"order_id": "O10090", "product_id": "P016", "quantity": 1, "amount_cents": 3990, "condition": "defective_or_wrong"}],
       "expected": "Turn 1: delivered 2026-10-08. Turn 2: 39.90 EUR (34.00 + 5.90 shipping, defective), after approval."

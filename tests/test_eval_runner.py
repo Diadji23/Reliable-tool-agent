@@ -161,3 +161,18 @@ def test_chat_cases_join_the_tasks_with_nothing_to_write():
     chat = [t for t in TASKS.values() if t["category"] == "from_chat"]
     assert len(chat) == 4
     assert all(t["expected_refunds"] == [] for t in chat)
+
+
+async def test_simulated_customer_confirms_once_when_asked(shop_db):
+    task = TASKS["t-refund-defective-with-shipping"]
+    call = refund_call("O10041", "P010", "defective_or_wrong", "r1")
+    model = ScriptedModel(
+        [
+            AssistantTurn("It comes to 50.90 EUR. Shall I process it?"),
+            AssistantTurn(None, [call]),
+            AssistantTurn("Refunded. Anything else?"),  # a question again: no second reply
+        ]
+    )
+    run = await run_case(task, model, shop_db, SYSTEM)
+    assert [t.user for t in run.turns] == task["turns"] + ["Yes, please go ahead."]
+    assert check_task(task, run) == []

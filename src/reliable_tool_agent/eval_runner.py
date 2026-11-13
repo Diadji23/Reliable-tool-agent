@@ -99,7 +99,10 @@ async def run_case(
         before = _refund_ids(db)
         async with Client(build_server(Session(case["customer"], db))) as client:
             agent = GraphAgent(model, McpToolbox(client), system_prompt, InMemorySaver(), max_steps)
-            for text in case["turns"]:
+            turns = list(case["turns"])
+            reply_if_asked = case.get("if_asked")
+            while turns:
+                text = turns.pop(0)
                 start = time.perf_counter()
                 result = await agent.ask(case["id"], text)
                 while result.stop_reason == "awaiting_approval":
@@ -125,6 +128,11 @@ async def run_case(
                         round(time.perf_counter() - start, 2),
                     )
                 )
+                # A simulated customer: if the agent asks for a confirmation the customer
+                # already gave ("would you like me to process it?"), they say yes, once.
+                if not turns and reply_if_asked and "?" in (result.answer or ""):
+                    turns.append(reply_if_asked)
+                    reply_if_asked = None
             run.messages = result.messages
         run.new_refunds = _refunds_since(db, before)
     return run
