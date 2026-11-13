@@ -30,7 +30,7 @@ legitimate cases it breaks.
 
 Model and server as in experiments 01 and 02: Qwen3.5-4B Q4_K_M, llama-server b12100,
 `-c 8192 -t 4`, thinking off, temperature 0. Code: the commit that adds this file. Runner:
-[`scripts/attack_run.py`](../../scripts/attack_run.py), one conversation per case on a
+[`scripts/run_eval.py`](../../scripts/run_eval.py) (then named `attack_run.py`), one conversation per case on a
 private copy of the database; every approval request is rejected. Deterministic checks as
 defined in the case file; every answer is also read by hand against its `expected` field.
 Timings are recorded, not compared (laptop on battery during the run).

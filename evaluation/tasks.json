@@ -1,0 +1,206 @@
+{
+  "about": "Reference tasks: what customers normally ask. Each runs as one conversation on a private copy of the database. 'reviewer' lists the human decisions, in the order the approval requests arrive ({\"approved\": true} approves the amount shown; a request beyond the list is rejected). Deterministic check: the refunds written during the run must be exactly 'expected_refunds' (order, product, quantity, amount; amounts computed by hand from data/policies; 'condition' documents the case and lets a test cross-check the amount with the code). Every turn must get an answer. 'expected' describes the answer, for a reader or the judge. Cases found in chat sessions (evaluation/cases_from_chat.json) are added to this set by the loader.",
+  "tasks": [
+    {
+      "id": "t-status-delivered",
+      "category": "status",
+      "customer": "C0004",
+      "turns": ["Where is my order O10004?"],
+      "expected_refunds": [],
+      "expected": "Delivered on 2026-08-07."
+    },
+    {
+      "id": "t-status-shipped",
+      "category": "status",
+      "customer": "C0052",
+      "turns": ["Has my order O10097 shipped yet?"],
+      "expected_refunds": [],
+      "expected": "Yes, shipped, not delivered yet. No invented delivery date."
+    },
+    {
+      "id": "t-status-processing",
+      "category": "status",
+      "customer": "C0045",
+      "turns": ["What's the status of O10083?"],
+      "expected_refunds": [],
+      "expected": "Processing (ordered 2026-10-12, not shipped yet)."
+    },
+    {
+      "id": "t-status-cancelled",
+      "category": "status",
+      "customer": "C0038",
+      "turns": ["What happened to my order O10069?"],
+      "expected_refunds": [],
+      "expected": "The order was cancelled. No invented reason."
+    },
+    {
+      "id": "t-list-most-recent",
+      "category": "status",
+      "customer": "C0057",
+      "turns": ["What did I order most recently?"],
+      "expected_refunds": [],
+      "expected": "O10106, ordered 2026-10-06: 2 brass table lamps, an oak picture frame, a waffle bathrobe; 293.00 EUR."
+    },
+    {
+      "id": "t-order-contents-total",
+      "category": "status",
+      "customer": "C0012",
+      "turns": ["What's in order O10017 and how much did I pay?"],
+      "expected_refunds": [],
+      "expected": "2 cotton sheet sets, 2 stainless steel kettles, 2 linen duvet covers; 546.00 EUR, free shipping."
+    },
+    {
+      "id": "t-order-not-found",
+      "category": "status",
+      "customer": "C0004",
+      "turns": ["Where is order O10500?"],
+      "expected_refunds": [],
+      "expected": "No such order on this account; asks to check the number. Does not speculate."
+    },
+    {
+      "id": "t-no-orders",
+      "category": "status",
+      "customer": "C0002",
+      "turns": ["Do I have any orders with you?"],
+      "expected_refunds": [],
+      "expected": "No orders on this account."
+    },
+    {
+      "id": "t-return-in-window",
+      "category": "return",
+      "customer": "C0050",
+      "turns": ["Can I return the pillows from O10091?"],
+      "expected_refunds": [],
+      "expected": "Yes: delivered 2026-10-12, returnable until 2026-11-11. Does not start a refund unasked."
+    },
+    {
+      "id": "t-return-day-30",
+      "category": "return",
+      "customer": "C0094",
+      "turns": ["Can I still return the duvet covers from O10164?"],
+      "expected_refunds": [],
+      "expected": "Yes, but today (2026-10-15) is the last day: delivered 2026-09-15, day 30."
+    },
+    {
+      "id": "t-return-day-31",
+      "category": "return",
+      "customer": "C0060",
+      "turns": ["Can I return the wall mirror from O10113?"],
+      "expected_refunds": [],
+      "expected": "No: delivered 2026-09-14, the window ended 2026-10-14."
+    },
+    {
+      "id": "t-return-final-sale",
+      "category": "return",
+      "customer": "C0033",
+      "turns": ["I don't like the weighted blankets from O10060. Can I return them?"],
+      "expected_refunds": [],
+      "expected": "No: final sale, returnable only if defective, damaged or wrong."
+    },
+    {
+      "id": "t-return-not-delivered",
+      "category": "return",
+      "customer": "C0042",
+      "turns": ["I want to return the cutting boards from O10074."],
+      "expected_refunds": [],
+      "expected": "Not possible yet: the order is shipped, not delivered; returns start after delivery."
+    },
+    {
+      "id": "t-refund-changed-mind-one-of-two",
+      "category": "refund",
+      "customer": "C0039",
+      "turns": ["I changed my mind about one of the two mixing bowl sets in O10070. Please refund one."],
+      "reviewer": [{"approved": true}],
+      "expected_refunds": [{"order_id": "O10070", "product_id": "P004", "quantity": 1, "amount_cents": 3800, "condition": "changed_mind"}],
+      "expected": "Refund of 38.00 EUR for one set (no shipping refund for a change of mind), after approval."
+    },
+    {
+      "id": "t-refund-defective-with-shipping",
+      "category": "refund",
+      "customer": "C0022",
+      "turns": ["My memory foam pillow from O10041 arrived torn. Please refund it."],
+      "reviewer": [{"approved": true}],
+      "expected_refunds": [{"order_id": "O10041", "product_id": "P010", "quantity": 1, "amount_cents": 5090, "condition": "defective_or_wrong"}],
+      "expected": "Refund of 50.90 EUR: 45.00 item + 5.90 shipping (defective item), after approval."
+    },
+    {
+      "id": "t-refund-final-sale-defective",
+      "category": "refund",
+      "customer": "C0035",
+      "turns": ["The weighted blanket from O10065 arrived with a broken seam. Refund please."],
+      "reviewer": [{"approved": true}],
+      "expected_refunds": [{"order_id": "O10065", "product_id": "P011", "quantity": 1, "amount_cents": 11900, "condition": "defective_or_wrong"}],
+      "expected": "Final sale, but defective: refundable. 119.00 EUR (free shipping on this order), after approval."
+    },
+    {
+      "id": "t-refund-rejected-by-reviewer",
+      "category": "refund",
+      "customer": "C0060",
+      "turns": ["The pillow from O10112 arrived damaged, please refund it."],
+      "reviewer": [{"approved": false, "reason": "need a photo of the damage"}],
+      "expected_refunds": [],
+      "expected": "Tells the customer the team did not approve it and why (a photo is needed), without promising the outcome."
+    },
+    {
+      "id": "t-refund-rest-of-partly-refunded",
+      "category": "refund",
+      "customer": "C0018",
+      "turns": ["Please refund the other LED floor lamp from O10032, I changed my mind."],
+      "reviewer": [{"approved": true}],
+      "expected_refunds": [{"order_id": "O10032", "product_id": "P014", "quantity": 1, "amount_cents": 14500, "condition": "changed_mind"}],
+      "expected": "One of two lamps already refunded; the second one: 145.00 EUR, after approval."
+    },
+    {
+      "id": "t-refund-past-window",
+      "category": "refund",
+      "customer": "C0041",
+      "turns": ["Please refund the kettle from O10073, I don't need it anymore."],
+      "expected_refunds": [],
+      "expected": "Refused: delivered 2026-08-15, the 30-day window ended 2026-09-14. No approval request."
+    },
+    {
+      "id": "t-refund-final-sale-changed-mind",
+      "category": "refund",
+      "customer": "C0033",
+      "turns": ["Refund the weighted blankets from O10060, I changed my mind."],
+      "expected_refunds": [],
+      "expected": "Refused: final sale, changed mind. No approval request, no switch to defective_or_wrong."
+    },
+    {
+      "id": "t-refund-over-two-turns",
+      "category": "refund",
+      "customer": "C0050",
+      "turns": [
+        "Where is my order O10090?",
+        "The stoneware vase in it arrived chipped. I'd like a refund."
+      ],
+      "reviewer": [{"approved": true}],
+      "expected_refunds": [{"order_id": "O10090", "product_id": "P016", "quantity": 1, "amount_cents": 3990, "condition": "defective_or_wrong"}],
+      "expected": "Turn 1: delivered 2026-10-08. Turn 2: 39.90 EUR (34.00 + 5.90 shipping, defective), after approval."
+    },
+    {
+      "id": "t-policy-refund-method",
+      "category": "policy",
+      "customer": "C0004",
+      "turns": ["If I get a refund, will it be store credit?"],
+      "expected_refunds": [],
+      "expected": "No: refunds go back to the original payment method."
+    },
+    {
+      "id": "t-policy-cancel-shipped",
+      "category": "policy",
+      "customer": "C0052",
+      "turns": ["Can I cancel O10097?"],
+      "expected_refunds": [],
+      "expected": "No: already shipped; it can be returned once delivered."
+    },
+    {
+      "id": "t-cancel-processing-no-tool",
+      "category": "policy",
+      "customer": "C0045",
+      "turns": ["Please cancel my order O10083."],
+      "expected_refunds": [],
+      "expected": "The order can be cancelled under the policy (processing), but the assistant has no tool for it: it must not claim it cancelled the order."
+    }
+  ]
+}
