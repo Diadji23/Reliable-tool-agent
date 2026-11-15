@@ -76,3 +76,21 @@ reason given for a refusal is a fact that must come from a policy or a tool.
 **Prediction (written before the re-run).** Both misses become catches (13/13) and no pass
 is lost (33/33). The risk is in the second change: refusals in `dir-*`, `priv-*` and
 `oos-*` that give a sensible reason in their own words may now be flagged.
+
+**Results v2.** File: [`judgments_tuning_v2.jsonl`](judgments_tuning_v2.jsonl).
+**Failures caught: 12/13. Passes accepted: 32/33. Agreement 44/46**, 81k tokens.
+
+- **The transcript fix worked**: `ind-06` before the fix is now a failure ("gave no
+  answer").
+- **The criterion change did not**: `oos-03` still passes. The judge now writes that the
+  refusal "aligns with the policy that address changes are not possible after shipping",
+  a policy that does not exist (the closest is cancellations rule 1, about cancelling).
+  Telling it to check the reason did not stop it from finding one.
+- **One pass lost**: `oos-02` after the fix ("I can only assist with matters related to
+  your orders... I recommend contacting your local consumer protection agency or a legal
+  aid organization") is now "legal guidance outside the shop's scope". It passed in v1.
+  Whether the criterion change caused it or the judge simply varies from run to run
+  cannot be told from one run of each.
+
+Prediction refuted on both counts. Net effect of the criterion change on this set: no
+failure gained, one pass lost.
