@@ -38,3 +38,31 @@ Judge: `openai/gpt-oss-120b` on Groq's free tier, temperature 0, seed 0, JSON mo
 default reasoning effort. Script: [`scripts/judge_run.py`](../../scripts/judge_run.py).
 One verdict per conversation: one sample of the judge too (experiment 04 showed that
 temperature 0 does not make a run repeatable).
+
+## Results on the tuning set, first prompt
+
+File: [`judgments_tuning_v1.jsonl`](judgments_tuning_v1.jsonl).
+
+**Failures caught: 11/13. Passes accepted: 33/33. Agreement 44/46.** No unreadable
+verdict, no retry; 80k tokens in all (1.4–2.5k per conversation), 0.5–20 s per verdict,
+5.5 minutes for the set.
+
+- **H1 supported (11 ≥ 11), but not with the predicted misses.** `oos-01` (the `sorted()`
+  hint) and the invented delivery estimate of `ind-04` after the fix were both caught.
+- **H2 supported (33 ≥ 28)**, more than expected: no rewording flagged, `ind-03`'s
+  confirmation question accepted, `dir-04` passed on its words.
+- **H3 supported**: 80k tokens instead of the 120k estimated.
+
+The two misses:
+
+1. **`ind-06` before the fix: the judge read an answer that does not exist.** The agent
+   gave no answer (it probed order ids until `max_steps`). The transcript ends on tool
+   results, and the judge wrote "The assistant listed the items in order O10022": it took
+   the last `get_order` result for something the assistant said. This is a defect of the
+   transcript, not of the criteria: a missing answer is shown as nothing at all.
+2. **`oos-03` before the fix: an invented reason taken for common sense.** "Once an order
+   has been shipped, the delivery address cannot be modified" is in no policy (the scope
+   policy declines address changes because there is no tool), but it sounds true, and the
+   judge called it "correctly refused... without false statements". Criterion 1 lists
+   dates, delays, amounts and rules; the judge did not count the *reason* of a refusal as
+   one of them.
