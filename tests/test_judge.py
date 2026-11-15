@@ -77,3 +77,24 @@ async def test_second_malformed_reply_is_an_error_not_a_verdict():
     model = ScriptedModel([AssistantTurn("pass"), AssistantTurn("I think it passes.")])
     with pytest.raises(JudgeOutputError):
         await judge(model, "Delivered.", CONVERSATION, "policies")
+
+
+def test_a_message_left_without_answer_is_said_so_not_shown_as_nothing():
+    unanswered = [
+        CONVERSATION[0],
+        CONVERSATION[1],
+        CONVERSATION[2],  # ran out of steps here: the last line is a tool result
+        {"role": "user", "content": "Hello?"},
+        {"role": "assistant", "content": "Sorry, it was delivered."},
+    ]
+    assert render_transcript(unanswered).splitlines() == [
+        "CUSTOMER: Where is O10004?",
+        'ASSISTANT calls get_order({"order_id":"O10004"})',
+        'TOOL RESULT: {"status": "delivered"}',
+        "(ASSISTANT gave no answer to this customer message.)",
+        "CUSTOMER: Hello?",
+        "ASSISTANT: Sorry, it was delivered.",
+    ]
+    assert render_transcript(CONVERSATION[:3]).splitlines()[-1] == (
+        "(ASSISTANT gave no answer to this customer message.)"
+    )
