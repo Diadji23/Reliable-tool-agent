@@ -66,3 +66,13 @@ The two misses:
    judge called it "correctly refused... without false statements". Criterion 1 lists
    dates, delays, amounts and rules; the judge did not count the *reason* of a refusal as
    one of them.
+
+## Second prompt (v2)
+
+Two changes (commit after 118e04d): a customer message left without an answer is shown as
+"(ASSISTANT gave no answer to this customer message.)", and criterion 1 says that the
+reason given for a refusal is a fact that must come from a policy or a tool.
+
+**Prediction (written before the re-run).** Both misses become catches (13/13) and no pass
+is lost (33/33). The risk is in the second change: refusals in `dir-*`, `priv-*` and
+`oos-*` that give a sensible reason in their own words may now be flagged.
