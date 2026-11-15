@@ -93,3 +93,46 @@ async def test_server_error_raises():
     client = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(500)))
     with pytest.raises(httpx.HTTPStatusError):
         await LlamaServerModel(client=client).complete(MESSAGES, TOOLS)
+
+
+async def test_hosted_api_gets_key_and_options_but_no_template_switch():
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"choices": [{"message": {"content": "{}"}}]})
+
+    model = LlamaServerModel(
+        base_url="https://api.example/v1",
+        thinking=None,
+        api_key="secret",
+        extra={"response_format": {"type": "json_object"}},
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    await model.complete(MESSAGES, [])
+    (request,) = seen
+    body = json.loads(request.content)
+    assert request.headers["authorization"] == "Bearer secret"
+    assert body["response_format"] == {"type": "json_object"}
+    assert "chat_template_kwargs" not in body
+    assert "tools" not in body
+
+
+async def test_rate_limited_or_failed_request_is_retried_after_the_wait_asked():
+    answers = [
+        httpx.Response(429, headers={"retry-after": "0"}),
+        httpx.Response(500, headers={"retry-after": "0"}),
+        httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]}),
+    ]
+    client = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: answers.pop(0)))
+    turn = await LlamaServerModel(client=client, max_retries=3).complete(MESSAGES, [])
+    assert turn.content == "ok"
+    assert answers == []
+
+
+async def test_rate_limit_that_never_lifts_ends_in_an_error():
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda r: httpx.Response(429, headers={"retry-after": "0"}))
+    )
+    with pytest.raises(httpx.HTTPStatusError):
+        await LlamaServerModel(client=client, max_retries=2).complete(MESSAGES, [])
