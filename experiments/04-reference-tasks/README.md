@@ -91,3 +91,17 @@ On what customers normally ask, the agent gets the facts right: statuses, return
 
 The final-state check alone gives 26/28; reading the answers gives 22/28. On this set the
 database is the right check for refunds and says almost nothing about the rest.
+
+## Re-run with a simulated customer
+
+**Change.** The 5 approved-refund tasks gained an `if_asked` reply: if the agent's last
+answer asks a question, the simulated customer answers "Yes, please go ahead." once.
+Asking first is accepted; ending on the question without refunding is not.
+
+**Hypothesis (written before the re-run).** All 5 tasks end with exactly the expected
+refund row (5/5), with the amounts of the first run. The 3 tasks that passed do not ask,
+so they do not change; the 2 that asked call `refund_order` after the "yes".
+
+**Protocol.** Same model and server settings, only these 5 tasks (`--only`), output in
+[`traces_after.jsonl`](traces_after.jsonl). Laptop on **battery** this time: timings are
+not compared with the first run.
