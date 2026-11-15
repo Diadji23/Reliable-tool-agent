@@ -105,3 +105,21 @@ so they do not change; the 2 that asked call `refund_order` after the "yes".
 **Protocol.** Same model and server settings, only these 5 tasks (`--only`), output in
 [`traces_after.jsonl`](traces_after.jsonl). Laptop on **battery** this time: timings are
 not compared with the first run.
+
+**Results.** File: [`traces_after.jsonl`](traces_after.jsonl). **5/5 refunds written**,
+amounts identical to the hand-computed ones (38.00, 50.90, 119.00, 145.00, 39.90).
+Hypothesis supported on the count, but not for the predicted reason:
+
+- `t-refund-over-two-turns` asked again ("Would you like me to process this refund for
+  you?"), got the "yes", then called `refund_order`: the simulated customer did its job.
+- `t-refund-final-sale-defective` **did not ask this time**: it went straight to
+  `refund_order` (and skipped `list_my_orders`). The simulated reply was never used.
+- `t-refund-changed-mind-one-of-two` also took another path: an extra
+  `check_return_eligibility` call before the quote. Same final state.
+
+Same prompt, same model, same settings, temperature 0, yet 2 of 5 trajectories changed.
+Greedy decoding on llama-server is not reproducible from run to run here; a likely cause
+is the prompt cache (this run starts from other cached prompts than the 28-task run) and
+the batch sizes it implies, not checked. Consequence for the evaluation: one run per task
+is one sample, and a single-task difference between two runs is not evidence of a change.
+The judge (step 6b) and any comparison should use several runs per task.
