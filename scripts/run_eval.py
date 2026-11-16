@@ -5,7 +5,8 @@ Needs a running llama-server (see llama_server.py):
     uv run python scripts/run_eval.py experiments/<dir> --set tasks     # reference tasks
     uv run python scripts/run_eval.py experiments/<dir> --set attacks   # attack cases
 
-Add --mlflow to record the run in the local MLflow (experiment agent-eval).
+Add --mlflow to record the run in the local MLflow (experiment agent-eval), and --trace to
+trace every turn (experiment agent-traces, one session per case).
 
 The deterministic checks are applied here; answers are also read by hand (and, later, by
 a judge) in the experiment's write-up.
@@ -53,6 +54,9 @@ async def main() -> None:
     parser.add_argument("--out", default="traces.jsonl")
     parser.add_argument("--mlflow", action="store_true", help="record the run in MLflow")
     parser.add_argument("--run-name", help="MLflow run name (default: <dir>/<out>)")
+    parser.add_argument(
+        "--trace", action="store_true", help="trace every turn in MLflow (agent-traces)"
+    )
     args = parser.parse_args()
     logging.getLogger("mcp").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -70,10 +74,18 @@ async def main() -> None:
     cases = [c for c in cases if not args.only or c["id"] in args.only]
     passed = 0
     records = []
+    if args.trace:
+        from reliable_tool_agent.tracing import enable_tracing
+
+        enable_tracing()
+    batch = time.strftime("%Y%m%d-%H%M%S")  # names this run's sessions in MLflow
     with (args.experiment_dir / args.out).open("w") as out:
         for case in cases:
             model = TimedModel(LlamaServerModel(base_url=args.base_url))
-            run = await run_case(case, model, DEFAULT_DB_PATH, system_prompt(), args.max_steps)
+            session = f"eval-{batch}-{case['id']}" if args.trace else None
+            run = await run_case(
+                case, model, DEFAULT_DB_PATH, system_prompt(), args.max_steps, session
+            )
             failures = checker(case, run)
             passed += not failures
             record = run.to_json()
@@ -88,6 +100,11 @@ async def main() -> None:
                 print(f"    -> {' '.join((t.answer or '').split())[:200]!r}")
             await model.inner.aclose()
     print(f"\n{passed}/{len(cases)} cases pass the deterministic checks")
+    if args.trace:
+        from reliable_tool_agent.tracing import flush_traces
+
+        flush_traces()
+        print(f"traced in MLflow: experiment agent-traces, sessions eval-{batch}-<case id>")
 
     if args.mlflow:
         from reliable_tool_agent.tracking import code_version, fingerprint, log_run, trace_metrics
@@ -106,6 +123,7 @@ async def main() -> None:
                 "system_prompt_sha": fingerprint(system_prompt()),
                 "git_commit": code_version(),
                 "file": str(path),
+                "trace_sessions": f"eval-{batch}-<case id>" if args.trace else "not traced",
             },
             metrics=trace_metrics(records),
             artifacts=[path],

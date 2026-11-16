@@ -106,3 +106,25 @@ async def test_a_paused_refund_gives_one_trace_per_turn_with_model_and_tool_span
     tool = next(s for s in resumed.data.spans if s.name == "refund_order")
     assert tool.outputs["ok"] is True
     assert json.loads(tool.outputs["text"])["amount_cents"] == 5090
+
+
+async def test_an_evaluation_case_is_traced_under_its_session(shop_db, tmp_path):
+    from reliable_tool_agent.eval_runner import run_case
+
+    enable_tracing("test-eval-traces", f"sqlite:///{tmp_path / 'mlflow.db'}")
+    case = {"id": "c1", "customer": "C0021", "turns": ["Where is O10040?", "Thanks!"]}
+    model = ScriptedModel(
+        [
+            turn(None, [ToolCall("g1", "get_order", '{"order_id": "O10040"}')]),
+            turn("Delivered on 2026-10-13."),
+            turn("You're welcome."),
+        ]
+    )
+    run = await run_case(case, model, shop_db, "System.", trace_session="eval-x-c1")
+    flush_traces()
+
+    assert [t.answer for t in run.turns] == ["Delivered on 2026-10-13.", "You're welcome."]
+    traces = sorted(mlflow.search_traces(return_type="list"), key=lambda t: t.info.request_time)
+    assert len(traces) == 2  # one per customer turn
+    assert {t.info.request_metadata["mlflow.trace.session"] for t in traces} == {"eval-x-c1"}
+    assert [name for name, _, _ in spans(traces[0])] == ["agent ask", "model", "get_order", "model"]

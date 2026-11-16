@@ -89,22 +89,39 @@ class CaseRun:
 
 
 async def run_case(
-    case: dict, model: ChatModel, db_path: Path, system_prompt: str, max_steps: int = 8
+    case: dict,
+    model: ChatModel,
+    db_path: Path,
+    system_prompt: str,
+    max_steps: int = 8,
+    trace_session: str | None = None,
 ) -> CaseRun:
-    """Play the case's turns on a copy of `db_path`, answering approvals from its script."""
+    """Play the case's turns on a copy of `db_path`, answering approvals from its script.
+
+    With `trace_session`, every turn is traced in MLflow (see tracing.py) under that
+    session name; tracing must have been enabled by the caller.
+    """
     run = CaseRun(case["id"])
+    thread = trace_session or case["id"]
     script = list(case.get("reviewer", []))
     with tempfile.TemporaryDirectory(prefix="eval-case-") as tmp:
         db = Path(shutil.copyfile(db_path, Path(tmp) / "shop.db"))
         before = _refund_ids(db)
         async with Client(build_server(Session(case["customer"], db))) as client:
-            agent = GraphAgent(model, McpToolbox(client), system_prompt, InMemorySaver(), max_steps)
+            toolbox = McpToolbox(client)
+            if trace_session:
+                from reliable_tool_agent.tracing import TracedAgent, TracedModel, TracedToolbox
+
+                model, toolbox = TracedModel(model), TracedToolbox(toolbox)
+            agent = GraphAgent(model, toolbox, system_prompt, InMemorySaver(), max_steps)
+            if trace_session:
+                agent = TracedAgent(agent, user=case["customer"], metadata={"case": case["id"]})
             turns = list(case["turns"])
             reply_if_asked = case.get("if_asked")
             while turns:
                 text = turns.pop(0)
                 start = time.perf_counter()
-                result = await agent.ask(case["id"], text)
+                result = await agent.ask(thread, text)
                 while result.stop_reason == "awaiting_approval":
                     decisions = {}
                     for request in result.pending:
@@ -119,7 +136,7 @@ async def run_case(
                                 "decision": decision,
                             }
                         )
-                    result = await agent.resume(case["id"], decisions)
+                    result = await agent.resume(thread, decisions)
                 run.turns.append(
                     TurnRun(
                         text,
