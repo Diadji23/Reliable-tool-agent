@@ -7,8 +7,9 @@ any refund, guardrails measured against attacks, and an evaluation that checks t
 model on a laptop CPU, at zero cost.
 
 > **Status: work in progress.** Built: the shop, six tools over MCP, the agent (hand-written
-> loop and LangGraph graph), conversation memory, human approval, the first guardrails.
-> Planned: tracing, the full evaluation with a judge, web API, Docker, CI.
+> loop and LangGraph graph), conversation memory, human approval, the first guardrails,
+> an evaluation on the database state plus a calibrated LLM judge, tracked in MLflow.
+> Planned: tracing, web API, Docker, CI.
 
 ![Architecture](docs/architecture.png)
 
@@ -27,7 +28,7 @@ model on a laptop CPU, at zero cost.
   can insert into one table and do nothing else.
 - **Untrusted text is kept away from the model.** A carrier note planted with prompt
   injections never reaches it ([threat model](docs/threat-model.md)).
-- **Tested without a model.** 152 tests drive the agent with a scripted model against the
+- **Tested without a model.** 210 tests drive the agent with a scripted model against the
   real MCP server; deliberately breaking the code makes them fail.
 
 Details, reasons and known limits: [`docs/design.md`](docs/design.md).
@@ -39,6 +40,8 @@ Details, reasons and known limits: [`docs/design.md`](docs/design.md).
 | [01 — first real run](experiments/01-first-real-run/README.md) | 8/9 questions correct; 20–41 s per question on CPU; prompt cache cuts total time by 3.1x |
 | [02 — return eligibility](experiments/02-return-eligibility/README.md) | Date error that appeared only mid-conversation, never on the question alone; fixed by moving the rule into code: 10/10 |
 | [03 — guardrails](experiments/03-guardrail-baseline/README.md) | Indirect prompt injections resisted: 2/7 before, 7/7 after keeping the carrier note away from the model; 20/23 attack and borderline cases overall |
+| [04 — reference tasks](experiments/04-reference-tasks/README.md) | 26/28 right final database state, 22/28 right by hand: the failures the database cannot see are in the words (promises, offers without a tool) |
+| [05 — LLM judge](experiments/05-judge-calibration/README.md) | Judge agrees with hand labels on 24/28 held-out conversations (3/4 failures caught); misses promises made after a rejection |
 
 Every experiment states its hypotheses before the run and reads the answers by hand.
 

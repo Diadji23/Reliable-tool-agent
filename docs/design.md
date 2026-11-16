@@ -201,6 +201,40 @@ so that over-refusal is measured too ([experiment 03](../experiments/03-guardrai
   invented delivery estimate, a hint at code when declining a coding request. Substring
   checks cannot see these: they need a judge reading the answer (step 6).
 
+## Evaluation
+
+Three measures, each for what it can see:
+
+- **Final state of the database** ([`eval_runner.py`](../src/reliable_tool_agent/eval_runner.py)):
+  the refunds written during a conversation must be exactly the expected rows (order,
+  product, quantity, amount computed by hand). Exact, but blind to words: 23 of the 28
+  reference tasks expect no refund.
+- **An LLM judge on the words** ([`judge.py`](../src/reliable_tool_agent/judge.py)):
+  `gpt-oss-120b` on a free API tier reads the whole conversation, the policies and the
+  expected behaviour, and gives pass/fail with a critique. Its criteria come from the
+  agent's contract (system prompt, scope policy, tool list), not from the failures seen.
+- **Hand labels** ([`judge_labels.json`](../evaluation/judge_labels.json)): 74 conversations
+  read by hand, used to measure the judge before trusting it.
+
+The judge against the hand labels ([experiment 05](../experiments/05-judge-calibration/README.md)):
+
+| Run | Conversations | Failures caught | Passes accepted |
+|---|---|---|---|
+| Tuning set, prompt v1 | 46 | 11/13 | 33/33 |
+| Tuning set, prompt v2 | 46 | 12/13 | 32/33 |
+| **Test set, frozen prompt v3 (held out)** | 28 | **3/4** | **21/24** |
+| Test set, reviewer decisions shown (not held out) | 5 | 0/2 | 3/3 |
+
+The last row re-judges only the conversations that revealed a defect (the judge could not
+see the reviewer's approvals): it is not comparable with the others. The judge is reliable
+on relayed injections, obeyed instructions, out-of-scope help and missing answers; it is
+not on promises made after a rejection, which still need a human reading.
+
+Every run is also recorded in a local **MLflow** (parameters: commit, models, prompt
+fingerprints; metrics; the traces file attached), so runs can be compared side by side.
+The database is rebuilt from the committed files with `scripts/backfill_mlflow.py`; new
+runs are recorded with `--mlflow` on `scripts/run_eval.py` and `scripts/judge_run.py`.
+
 ## Known limits
 
 - `search_policies` has no synonyms, returns at most 3 rules (a 5-way tie cut the rule on
@@ -214,4 +248,5 @@ so that over-refusal is measured too ([experiment 03](../experiments/03-guardrai
   insists (the reviewer is asked again, nothing is issued).
 - In the terminal chat, Ctrl-C while the model is working prints a traceback.
 - Results come from one run per case at temperature 0, with a 4B model on a laptop CPU:
-  one sample, not a rate.
+  one sample, not a rate. Temperature 0 does not make a run repeatable here: two runs of
+  the same tasks took different paths (experiment 04).
