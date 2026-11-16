@@ -6,7 +6,10 @@
 
 Needs GROQ_API_KEY in the environment (or in .env). Writes one JSON line per conversation
 (label, verdict, critique, tokens) to <experiment_dir>/<out>, then prints how many failures
-the judge caught and how many passes it accepted, with every disagreement.
+the judge caught and how many passes it accepted, with every disagreement. Conversations
+without a hand label are judged too (for a new run of the agent) and only counted.
+Add --mlflow to record the run: experiment judge-calibration if some conversations are
+labelled, judge otherwise.
 """
 
 from __future__ import annotations
@@ -19,8 +22,15 @@ import time
 from pathlib import Path
 
 from reliable_tool_agent.eval_runner import load_cases, load_tasks
-from reliable_tool_agent.judge import JudgeOutputError, judge, load_policies
+from reliable_tool_agent.judge import (
+    JUDGE_SYSTEM,
+    JUDGE_USER,
+    JudgeOutputError,
+    judge,
+    load_policies,
+)
 from reliable_tool_agent.llama_server import LlamaServerModel
+from reliable_tool_agent.tracking import judgment_metrics
 
 ROOT = Path(__file__).resolve().parents[1]
 LABELS = ROOT / "evaluation" / "judge_labels.json"
@@ -55,6 +65,8 @@ async def main() -> None:
     parser.add_argument("--base-url", default="https://api.groq.com/openai/v1")
     parser.add_argument("--out", default="judgments.jsonl")
     parser.add_argument("--only", nargs="*", help="case ids to judge (default: all)")
+    parser.add_argument("--mlflow", action="store_true", help="record the run in MLflow")
+    parser.add_argument("--run-name", help="MLflow run name (default: <dir>/<out>)")
     args = parser.parse_args()
     load_env()
 
@@ -80,7 +92,7 @@ async def main() -> None:
                 run = json.loads(line)
                 if args.only and run["case_id"] not in args.only:
                     continue
-                label = labels[(trace, run["case_id"])]
+                label = labels.get((trace, run["case_id"]), {}).get("verdict")  # None: unlabelled
                 counted = UsageModel(model)
                 start = time.perf_counter()
                 try:
@@ -97,7 +109,7 @@ async def main() -> None:
                 row = {
                     "trace": trace,
                     "case_id": run["case_id"],
-                    "label": label["verdict"],
+                    "label": label,
                     "judge": judged,
                     "critique": critique,
                     "calls": counted.calls,
@@ -107,23 +119,41 @@ async def main() -> None:
                 rows.append(row)
                 out.write(json.dumps(row, ensure_ascii=False) + "\n")
                 out.flush()
-                mark = "  " if judged == label["verdict"] else "XX"
-                print(f"{mark} {run['case_id']}: label {label['verdict']}, judge {judged}")
+                mark = "XX" if label and judged != label else "  "
+                print(f"{mark} {run['case_id']}: label {label}, judge {judged}")
     await model.aclose()
 
-    fails = [r for r in rows if r["label"] == "fail"]
-    passes = [r for r in rows if r["label"] == "pass"]
-    caught = sum(r["judge"] == "fail" for r in fails)
-    accepted = sum(r["judge"] == "pass" for r in passes)
-    errors = sum(r["judge"] == "error" for r in rows)
-    tokens = sum(
-        c.get("prompt_tokens", 0) + c.get("completion_tokens", 0) for r in rows for c in r["calls"]
-    )
-    print(f"\nfailures caught: {caught}/{len(fails)}   passes accepted: {accepted}/{len(passes)}")
-    print(f"agreement: {caught + accepted}/{len(rows)}   judge errors: {errors}   tokens: {tokens}")
+    m = judgment_metrics(rows)
+    print(f"\njudge passes {m['judge_pass']}/{len(rows)}   errors: {m['judge_errors']}", end="")
+    print(f"   tokens: {m['judge_tokens']}")
+    if "agreement" in m:
+        print(
+            f"failures caught: {m['failures_caught']}/{m['failures_labelled']}   "
+            f"passes accepted: {m['passes_accepted']}/{m['passes_labelled']}"
+        )
     for r in rows:
-        if r["judge"] != r["label"]:
+        if r["label"] and r["judge"] != r["label"]:
             print(f"\n[{r['case_id']}] label {r['label']}, judge {r['judge']}\n  {r['critique']}")
+
+    if args.mlflow:
+        from reliable_tool_agent.tracking import code_version, fingerprint, log_run
+
+        path = args.experiment_dir / args.out
+        log_run(
+            "judge-calibration" if "agreement" in m else "judge",
+            args.run_name or f"{args.experiment_dir.name}/{args.out}",
+            params={
+                "judge_model": args.model,
+                "judge_prompt_sha": fingerprint(JUDGE_SYSTEM + JUDGE_USER),
+                "traces_judged": ", ".join(args.trace),
+                "only": " ".join(args.only) if args.only else "all",
+                "git_commit": code_version(),
+                "file": str(path),
+            },
+            metrics=m,
+            artifacts=[path],
+        )
+        print("recorded in MLflow")
 
 
 if __name__ == "__main__":

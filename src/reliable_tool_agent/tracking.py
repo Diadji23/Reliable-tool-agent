@@ -15,12 +15,17 @@ without MLflow; only `log_run` touches it.
 
 from __future__ import annotations
 
+import hashlib
+import os
 import statistics
+import subprocess
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_TRACKING_URI = f"sqlite:///{REPO_ROOT / 'mlflow.db'}"
-DEFAULT_ARTIFACTS = REPO_ROOT / "mlruns"  # files attached to runs (both git-ignored)
+# MLFLOW_TRACKING_URI, if set, sends runs elsewhere (a throw-away database for a trial run).
+DEFAULT_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", f"sqlite:///{REPO_ROOT / 'mlflow.db'}")
+# Files attached to runs. Both git-ignored; MLFLOW_ARTIFACTS moves them with a trial database.
+DEFAULT_ARTIFACTS = Path(os.environ.get("MLFLOW_ARTIFACTS", REPO_ROOT / "mlruns"))
 
 
 def trace_metrics(runs: list[dict], labels: dict[str, str] | None = None) -> dict[str, float]:
@@ -46,18 +51,15 @@ def trace_metrics(runs: list[dict], labels: dict[str, str] | None = None) -> dic
 
 
 def judgment_metrics(rows: list[dict]) -> dict[str, float]:
-    """The judge against the hand labels (rows written by scripts/judge_run.py)."""
-    fails = [r for r in rows if r["label"] == "fail"]
-    passes = [r for r in rows if r["label"] == "pass"]
-    caught = sum(r["judge"] == "fail" for r in fails)
-    accepted = sum(r["judge"] == "pass" for r in passes)
-    metrics = {
+    """The judge's verdicts (rows written by scripts/judge_run.py).
+
+    Always: how many conversations the judge passes. When rows carry a hand label
+    (`label` not None), also the judge against the labels, on the labelled rows only.
+    """
+    metrics: dict[str, float] = {
         "conversations": len(rows),
-        "agreement": (caught + accepted) / len(rows),
-        "failures_caught": caught,
-        "failures_labelled": len(fails),
-        "passes_accepted": accepted,
-        "passes_labelled": len(passes),
+        "judge_pass": sum(r["judge"] == "pass" for r in rows),
+        "judge_pass_rate": sum(r["judge"] == "pass" for r in rows) / len(rows),
         "judge_errors": sum(r["judge"] == "error" for r in rows),
         "judge_tokens": sum(
             c.get("prompt_tokens", 0) + c.get("completion_tokens", 0)
@@ -65,11 +67,41 @@ def judgment_metrics(rows: list[dict]) -> dict[str, float]:
             for c in r["calls"]
         ),
     }
+    fails = [r for r in rows if r.get("label") == "fail"]
+    passes = [r for r in rows if r.get("label") == "pass"]
+    if not fails and not passes:
+        return metrics
+    caught = sum(r["judge"] == "fail" for r in fails)
+    accepted = sum(r["judge"] == "pass" for r in passes)
+    metrics |= {
+        "agreement": (caught + accepted) / (len(fails) + len(passes)),
+        "failures_caught": caught,
+        "failures_labelled": len(fails),
+        "passes_accepted": accepted,
+        "passes_labelled": len(passes),
+    }
     if fails:
         metrics["failures_caught_rate"] = caught / len(fails)
     if passes:
         metrics["passes_accepted_rate"] = accepted / len(passes)
     return metrics
+
+
+def code_version() -> str:
+    """The commit the code ran from, marked "-dirty" if tracked files had local changes."""
+
+    def git(*args: str) -> str:
+        return subprocess.run(
+            ["git", *args], cwd=REPO_ROOT, capture_output=True, text=True, check=True
+        ).stdout.strip()
+
+    commit = git("rev-parse", "--short", "HEAD")
+    return commit + ("-dirty" if git("status", "--porcelain", "--untracked-files=no") else "")
+
+
+def fingerprint(text: str) -> str:
+    """A short hash of a prompt: two runs with the same value used the same prompt."""
+    return hashlib.sha256(text.encode()).hexdigest()[:12]
 
 
 def log_run(

@@ -1,8 +1,16 @@
 """Evaluation metrics for MLflow, and one run written to a throw-away tracking database."""
 
+import re
+
 import pytest
 
-from reliable_tool_agent.tracking import judgment_metrics, log_run, trace_metrics
+from reliable_tool_agent.tracking import (
+    code_version,
+    fingerprint,
+    judgment_metrics,
+    log_run,
+    trace_metrics,
+)
 
 
 def trace(case_id, failures, seconds, tokens):
@@ -49,6 +57,33 @@ def test_judgment_metrics_report_failures_caught_and_passes_accepted_apart():
     assert m["agreement"] == 0.5
     assert m["judge_errors"] == 1
     assert m["judge_tokens"] == 6
+    assert m["judge_pass"] == 2
+
+
+def test_judgment_metrics_without_labels_only_count_verdicts():
+    rows = [
+        {"label": None, "judge": "pass", "calls": []},
+        {"label": None, "judge": "fail", "calls": []},
+        {"label": None, "judge": "pass", "calls": []},
+    ]
+    m = judgment_metrics(rows)
+    assert m["judge_pass"] == 2
+    assert m["judge_pass_rate"] == pytest.approx(2 / 3)
+    assert "agreement" not in m and "failures_caught" not in m
+
+
+def test_agreement_is_computed_on_the_labelled_rows_only():
+    rows = [
+        {"label": "fail", "judge": "fail", "calls": []},
+        {"label": None, "judge": "pass", "calls": []},
+    ]
+    assert judgment_metrics(rows)["agreement"] == 1.0
+
+
+def test_code_version_and_fingerprint_identify_what_ran():
+    assert re.fullmatch(r"[0-9a-f]{7,}(-dirty)?", code_version())
+    assert fingerprint("prompt v1") == fingerprint("prompt v1")
+    assert fingerprint("prompt v1") != fingerprint("prompt v2")
 
 
 def test_a_run_is_recorded_with_its_params_metrics_file_and_date(tmp_path):
