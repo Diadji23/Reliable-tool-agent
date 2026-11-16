@@ -235,6 +235,35 @@ fingerprints; metrics; the traces file attached), so runs can be compared side b
 The database is rebuilt from the committed files with `scripts/backfill_mlflow.py`; new
 runs are recorded with `--mlflow` on `scripts/run_eval.py` and `scripts/judge_run.py`.
 
+## Tracing
+
+Every customer turn can be traced in MLflow ([`tracing.py`](../src/reliable_tool_agent/tracing.py)):
+`scripts/chat.py --mlflow` for a conversation, `scripts/run_eval.py --trace` for an
+evaluation run (one session per case, named in the run's parameters). A trace is one
+`ask`, or one `resume` after the reviewer's decision:
+
+```
+agent ask (AGENT)        customer message -> answer, stop reason, pending approvals
+├── model (LLM)          messages in, text or tool calls out, input/output tokens
+├── get_order (TOOL)     arguments in, result out, ok or not
+└── model (LLM)
+```
+
+The turns of one conversation share a session (the thread id) and the customer is the
+trace's user. What it showed at once: the model takes over 99% of a turn (tools take
+milliseconds), the first call of a conversation is the slowest because nothing is cached
+yet, and after an approval the quote runs a second time (LangGraph re-runs the approval
+node; the approved amount comes from the decision, not from that new quote).
+
+- **Wrappers, not changes to the agent.** `TracedModel`, `TracedToolbox` and `TracedAgent`
+  have the interface of what they wrap. The agent never imports MLflow, CI does not
+  install it, and tracing is on only when asked for.
+- **No automatic LangGraph tracing.** `mlflow.langchain.autolog()` adds a span per graph
+  node, but the model and tool spans did not nest under them: the tree was wrong, so it
+  is left out.
+- **Cost.** The model runs locally: the cost is zero and the traces record tokens. A
+  hosted model would add its price per token.
+
 ## Known limits
 
 - `search_policies` has no synonyms, returns at most 3 rules (a 5-way tie cut the rule on

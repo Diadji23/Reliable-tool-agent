@@ -8,8 +8,9 @@ model on a laptop CPU, at zero cost.
 
 > **Status: work in progress.** Built: the shop, six tools over MCP, the agent (hand-written
 > loop and LangGraph graph), conversation memory, human approval, the first guardrails,
-> an evaluation on the database state plus a calibrated LLM judge, tracked in MLflow.
-> Planned: tracing, web API, Docker, CI.
+> an evaluation on the database state plus a calibrated LLM judge, tracked in MLflow,
+> and a trace of every turn (model and tool calls, latency, tokens).
+> Planned: web API, Docker, deployment.
 
 ![Architecture](docs/architecture.png)
 

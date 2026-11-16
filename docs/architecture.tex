@@ -103,19 +103,19 @@
   \draw[arr, data] (13.0, 3.25) -- (policies.west);
 
   % ---------------------------------------------------------------- observability, evaluation
-  \node[planned=ops, minimum width=4.6in, minimum height=1.3in]
+  \node[built=ops, minimum width=4.6in, minimum height=1.3in]
     (obs) at (2.5, 0.85)
-    {Observability (Langfuse)\\traces $\cdot$ latency $\cdot$ tokens $\cdot$ cost per request};
-  \node[planned=ops, minimum width=10.7in, minimum height=1.3in]
+    {Observability (MLflow tracing)\\one trace per turn $\cdot$ latency $\cdot$ tokens per call};
+  \node[built=ops, minimum width=10.7in, minimum height=1.3in]
     (eval) at (10.45, 0.85)
     {Evaluation --- reference tasks $\cdot$ success = expected final DB state $\cdot$ attack set\\
      LLM-as-judge (calibrated) $\cdot$ cost \& latency $\cdot$ runs tracked in MLflow
      $\cdot$ CI (pytest)};
 
   % The agent emits traces; the evaluation checks the final state of the database.
-  \draw[arr, todo] (3.4, 1.95) -- (3.4, 1.5);
+  \draw[arr, ops] (3.4, 1.95) -- (3.4, 1.5);
   \node[note, anchor=east] at (3.3, 1.73) {traces};
-  \draw[arr, todo] (15.55, 4.6) -- (15.55, 1.5);
+  \draw[arr, ops] (15.55, 4.6) -- (15.55, 1.5);
   \node[note, fill=white, inner sep=1pt] at (15.55, 4.2) {final\\state};
 
   % ---------------------------------------------------------------- legend
