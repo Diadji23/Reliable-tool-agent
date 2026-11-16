@@ -20,10 +20,13 @@ notebook = [
     "nbconvert>=7.17.2",
     "nbformat>=5.11.1",
 ]
+tracking = [
+    "mlflow>=3.18.0",
+]
 
 [tool.uv]
-# Notebooks are for local learning only; CI skips them (see .github/workflows/ci.yml).
-default-groups = ["dev", "notebook"]
+# Notebooks and MLflow are local tools only; CI skips them (see .github/workflows/ci.yml).
+default-groups = ["dev", "notebook", "tracking"]
 
 [build-system]
 requires = ["hatchling"]

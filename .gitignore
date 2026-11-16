@@ -13,3 +13,6 @@ models/
 docs/*.aux
 docs/*.log
 docs/*.pdf
+# MLflow runs (local tracking database and artifacts): rebuilt by scripts/backfill_mlflow.py.
+mlflow.db
+mlruns/
