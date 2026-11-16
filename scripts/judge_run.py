@@ -54,6 +54,7 @@ async def main() -> None:
     parser.add_argument("--model", default="openai/gpt-oss-120b")
     parser.add_argument("--base-url", default="https://api.groq.com/openai/v1")
     parser.add_argument("--out", default="judgments.jsonl")
+    parser.add_argument("--only", nargs="*", help="case ids to judge (default: all)")
     args = parser.parse_args()
     load_env()
 
@@ -77,12 +78,18 @@ async def main() -> None:
         for trace in args.trace:
             for line in (ROOT / trace).read_text().splitlines():
                 run = json.loads(line)
+                if args.only and run["case_id"] not in args.only:
+                    continue
                 label = labels[(trace, run["case_id"])]
                 counted = UsageModel(model)
                 start = time.perf_counter()
                 try:
                     verdict = await judge(
-                        counted, expected[run["case_id"]], run["messages"], policies
+                        counted,
+                        expected[run["case_id"]],
+                        run["messages"],
+                        policies,
+                        run["approvals"],
                     )
                     judged, critique = verdict.verdict, verdict.critique
                 except JudgeOutputError as error:

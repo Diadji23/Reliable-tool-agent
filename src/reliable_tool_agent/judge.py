@@ -81,14 +81,18 @@ def load_policies(directory: Path = POLICIES_DIR) -> str:
     return "\n\n".join(p.read_text().strip() for p in sorted(directory.glob("*.md")))
 
 
-def render_transcript(messages: list[Message]) -> str:
+def render_transcript(messages: list[Message], approvals: list[dict] = ()) -> str:
     """The conversation as plain text: who said what, which tool returned what.
 
     The agent's system prompt is left out: the judge is given the contract separately.
     A customer message the agent never answered (it ran out of steps) is said so
     explicitly: shown as nothing, a judge reads the last tool result as the answer.
+    The human reviewer's decisions (`approvals`, as recorded by the eval runner) are shown
+    after the call they decide: without them, "your refund is done" after an approval
+    reads as a promise the assistant had no right to make.
     """
     lines: list[str] = []
+    pending = list(approvals)
     answered = True
     for m in messages:
         if m["role"] == "user":
@@ -100,6 +104,9 @@ def render_transcript(messages: list[Message]) -> str:
             for call in m.get("tool_calls") or []:
                 fn = call["function"]
                 lines.append(f"ASSISTANT calls {fn['name']}({fn['arguments']})")
+                decision = _take_decision(pending, fn["name"], fn["arguments"])
+                if decision:
+                    lines.append(decision)
             if m.get("content"):
                 lines.append(f"ASSISTANT: {m['content']}")
                 answered = True
@@ -110,7 +117,24 @@ def render_transcript(messages: list[Message]) -> str:
     return "\n".join(lines)
 
 
-def judge_messages(expected: str, messages: list[Message], policies: str) -> list[Message]:
+def _take_decision(pending: list[dict], name: str, arguments: str) -> str | None:
+    """The reviewer's decision on this call, if it reached a reviewer (removed from pending)."""
+    try:
+        args = json.loads(arguments)
+    except json.JSONDecodeError:
+        return None
+    for i, request in enumerate(pending):
+        if request["tool"] == name and request["arguments"] == args:
+            decision = pending.pop(i)["decision"]
+            if decision.get("approved"):
+                return "HUMAN REVIEWER approved this request."
+            return f"HUMAN REVIEWER rejected this request: {decision.get('reason') or 'no reason'}."
+    return None
+
+
+def judge_messages(
+    expected: str, messages: list[Message], policies: str, approvals: list[dict] = ()
+) -> list[Message]:
     return [
         {
             "role": "system",
@@ -118,7 +142,9 @@ def judge_messages(expected: str, messages: list[Message], policies: str) -> lis
         },
         {
             "role": "user",
-            "content": JUDGE_USER.format(expected=expected, transcript=render_transcript(messages)),
+            "content": JUDGE_USER.format(
+                expected=expected, transcript=render_transcript(messages, approvals)
+            ),
         },
     ]
 
@@ -129,9 +155,15 @@ def parse_verdict(text: str | None) -> Verdict:
     return Verdict.model_validate_json(stripped)
 
 
-async def judge(model: ChatModel, expected: str, messages: list[Message], policies: str) -> Verdict:
+async def judge(
+    model: ChatModel,
+    expected: str,
+    messages: list[Message],
+    policies: str,
+    approvals: list[dict] = (),
+) -> Verdict:
     """One verdict on one conversation. A malformed reply gets one retry, with the error."""
-    prompt = judge_messages(expected, messages, policies)
+    prompt = judge_messages(expected, messages, policies, approvals)
     turn = await model.complete(prompt, [])
     try:
         return parse_verdict(turn.content)

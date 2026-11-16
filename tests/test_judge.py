@@ -98,3 +98,39 @@ def test_a_message_left_without_answer_is_said_so_not_shown_as_nothing():
     assert render_transcript(CONVERSATION[:3]).splitlines()[-1] == (
         "(ASSISTANT gave no answer to this customer message.)"
     )
+
+
+def test_reviewer_decisions_are_shown_after_the_calls_they_decide():
+    def refund(call_id, product):
+        args = (
+            f'{{"order_id":"O1","product_id":"{product}","quantity":1,"condition":"changed_mind"}}'
+        )
+        return {"id": call_id, "function": {"name": "refund_order", "arguments": args}}
+
+    def request(product, decision):
+        arguments = {"order_id": "O1", "product_id": product, "quantity": 1}
+        return {
+            "tool": "refund_order",
+            "arguments": {**arguments, "condition": "changed_mind"},
+            "decision": decision,
+        }
+
+    messages = [
+        {"role": "user", "content": "Refund both."},
+        {"role": "assistant", "content": "", "tool_calls": [refund("a", "P1"), refund("b", "P2")]},
+        {"role": "tool", "tool_call_id": "a", "content": "refund row"},
+        {"role": "tool", "tool_call_id": "b", "content": "Not done: rejected."},
+        {"role": "assistant", "content": "P1 is refunded; P2 was rejected."},
+    ]
+    approvals = [  # in the order they were decided, which need not be the call order
+        request("P2", {"approved": False, "reason": "no photo"}),
+        request("P1", {"approved": True, "amount_cents": 100}),
+    ]
+    lines = render_transcript(messages, approvals).splitlines()
+    assert lines[1:5] == [
+        f"ASSISTANT calls refund_order({refund('x', 'P1')['function']['arguments']})",
+        "HUMAN REVIEWER approved this request.",
+        f"ASSISTANT calls refund_order({refund('x', 'P2')['function']['arguments']})",
+        "HUMAN REVIEWER rejected this request: no photo.",
+    ]
+    assert render_transcript(messages).count("HUMAN REVIEWER") == 0  # no approvals given
