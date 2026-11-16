@@ -14,6 +14,10 @@ conversation), /trace (whole conversation as the model sees it), /quit.
 Before a refund is issued, the chat stops and you answer as the support team reviewer:
 approve, or reject with a reason. The chat works on a temporary copy of the shop
 database, so refunds you approve never change data/shop.db (used by the experiments).
+
+With --mlflow, every turn is also traced in the local MLflow (experiment agent-traces):
+model and tool calls with their time and tokens, one session per conversation. View with
+    uv run mlflow ui --backend-store-uri sqlite:///mlflow.db
 """
 
 from __future__ import annotations
@@ -168,6 +172,7 @@ async def main() -> None:
     parser.add_argument("--base-url", default="http://127.0.0.1:8080/v1")
     parser.add_argument("--max-steps", type=int, default=8)
     parser.add_argument("--thinking", action="store_true", help="let the model think aloud")
+    parser.add_argument("--mlflow", action="store_true", help="trace every turn in MLflow")
     args = parser.parse_args()
     logging.getLogger("httpx").setLevel(logging.WARNING)  # no line per HTTP request
     # The in-process MCP server logs each refused tool call at INFO; the chat already shows
@@ -185,19 +190,40 @@ async def main() -> None:
 
     model = CountingModel(LlamaServerModel(base_url=args.base_url, thinking=args.thinking))
     workdir = Path(tempfile.mkdtemp(prefix="brindle-chat-"))
+    if args.mlflow:
+        from reliable_tool_agent.tracing import enable_tracing
+
+        enable_tracing()
     try:
         await chat(args, model, workdir)
     finally:
         shutil.rmtree(workdir)
+        if args.mlflow:
+            from reliable_tool_agent.tracing import flush_traces
+
+            flush_traces()
+            print(f"{GREY}(turns traced in MLflow, experiment agent-traces){RESET}")
 
 
 async def chat(args: argparse.Namespace, model: CountingModel, workdir: Path) -> None:
     session = tools.Session(args.customer, shutil.copyfile(DEFAULT_DB_PATH, workdir / "shop.db"))
     async with Client(build_server(session)) as client:
-        agent = GraphAgent(
-            model, McpToolbox(client), system_prompt(), InMemorySaver(), args.max_steps
-        )
-        thread, n_thread, seen = "1", 1, 0
+        agent_model, toolbox = model, McpToolbox(client)
+        if args.mlflow:  # same objects, wrapped: the agent does not know it is traced
+            from reliable_tool_agent.tracing import TracedModel, TracedToolbox
+
+            agent_model, toolbox = TracedModel(model), TracedToolbox(toolbox)
+        agent = GraphAgent(agent_model, toolbox, system_prompt(), InMemorySaver(), args.max_steps)
+        if args.mlflow:
+            from reliable_tool_agent.tracing import TracedAgent
+            from reliable_tool_agent.tracking import code_version
+
+            meta = {"git_commit": code_version(), "max_steps": str(args.max_steps)}
+            agent = TracedAgent(agent, user=args.customer, metadata=meta)
+        # Thread ids are unique per chat session: they name the conversation in MLflow.
+        chat_id = time.strftime("chat-%Y%m%d-%H%M%S")
+        n_thread, seen = 1, 0
+        thread = f"{chat_id}-1"
         print(
             f"{BOLD}Brindle Home support{RESET} - customer {args.customer}. "
             "Commands: /orders /new /trace /quit"
@@ -217,7 +243,7 @@ async def chat(args: argparse.Namespace, model: CountingModel, workdir: Path) ->
                 continue
             if text == "/new":
                 n_thread += 1
-                thread, seen = str(n_thread), 0
+                thread, seen = f"{chat_id}-{n_thread}", 0
                 print(f"{GREY}(new conversation){RESET}")
                 continue
             if text == "/trace":
