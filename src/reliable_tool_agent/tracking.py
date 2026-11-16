@@ -97,6 +97,9 @@ def log_run(
     else:
         location = (artifact_root / experiment).as_uri()
         experiment_id = client.create_experiment(experiment, artifact_location=location)
+    # MLflow 3 opens an experiment on its GenAI tracing page, empty here: these are
+    # evaluation runs (params, metrics, files), so ask for the classic runs table.
+    client.set_experiment_tag(experiment_id, "mlflow.experimentKind", "custom_model_development")
     run = client.create_run(experiment_id, run_name=run_name, start_time=start_time_ms)
     run_id = run.info.run_id
     timestamp = start_time_ms or run.info.start_time
