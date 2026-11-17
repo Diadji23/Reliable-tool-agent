@@ -3181,10 +3181,12 @@ name = "reliable-tool-agent"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "fastapi" },
     { name = "httpx" },
     { name = "langgraph" },
     { name = "mcp" },
     { name = "pydantic" },
+    { name = "uvicorn" },
 ]
 
 [package.dev-dependencies]
@@ -3204,10 +3206,12 @@ tracking = [
 
 [package.metadata]
 requires-dist = [
+    { name = "fastapi", specifier = ">=0.163.1" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "langgraph", specifier = ">=1.2.20" },
     { name = "mcp", specifier = ">=2.3,<3" },
     { name = "pydantic", specifier = ">=2" },
+    { name = "uvicorn", specifier = ">=0.30" },
 ]
 
 [package.metadata.requires-dev]
