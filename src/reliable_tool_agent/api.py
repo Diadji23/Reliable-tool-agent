@@ -2,6 +2,7 @@
 
     POST /conversations                   customer  start a conversation
     POST /conversations/{id}/messages     customer  send a message, get the agent's answer
+    GET  /health                          anyone    is the server up
     GET  /approvals                       reviewer  refunds waiting for a decision
     POST /approvals/{id}                  reviewer  decide them; the agent finishes its turn
 
@@ -213,6 +214,12 @@ def create_app(
 ) -> FastAPI:
     app = FastAPI(title="Brindle Home support agent")
     app.state.service = Service(model, tokens, db_path, max_steps)
+
+    @app.get("/health")
+    async def health() -> dict:
+        """Is the server up? No token: a container platform asks it to know when to restart.
+        It does not call the model: a slow model is not a dead server."""
+        return {"status": "ok"}
 
     @app.post("/conversations", status_code=status.HTTP_201_CREATED)
     async def start_conversation(customer_id: Customer, svc: Svc) -> ConversationOut:

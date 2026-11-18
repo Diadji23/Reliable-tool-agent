@@ -76,6 +76,11 @@ def test_no_valid_token_is_401(writable_db, headers):
     assert response.headers["www-authenticate"] == "Bearer"
 
 
+def test_health_needs_no_token(writable_db):
+    response = api([], writable_db).get("/health")
+    assert response.status_code == 200 and response.json() == {"status": "ok"}
+
+
 def test_each_role_is_refused_the_other_roles_routes(writable_db):
     client = api([], writable_db)
     assert client.post("/conversations", headers=auth("tok-rev")).status_code == 403
