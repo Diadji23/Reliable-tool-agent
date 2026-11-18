@@ -9,8 +9,8 @@ model on a laptop CPU, at zero cost.
 > **Status: work in progress.** Built: the shop, six tools over MCP, the agent (hand-written
 > loop and LangGraph graph), conversation memory, human approval, the first guardrails,
 > an evaluation on the database state plus a calibrated LLM judge, tracked in MLflow,
-> and a trace of every turn (model and tool calls, latency, tokens).
-> Planned: web API, Docker, deployment.
+> a trace of every turn (model and tool calls, latency, tokens), and an HTTP API in a
+> Docker image. Planned: deployment.
 
 ![Architecture](docs/architecture.png)
 
@@ -29,7 +29,7 @@ model on a laptop CPU, at zero cost.
   can insert into one table and do nothing else.
 - **Untrusted text is kept away from the model.** A carrier note planted with prompt
   injections never reaches it ([threat model](docs/threat-model.md)).
-- **Tested without a model.** 210 tests drive the agent with a scripted model against the
+- **Tested without a model.** 230+ tests drive the agent with a scripted model against the
   real MCP server; deliberately breaking the code makes them fail.
 
 Details, reasons and known limits: [`docs/design.md`](docs/design.md).
@@ -65,10 +65,27 @@ uv run python scripts/chat.py --customer C0001                                  
 The chat shows each tool call, the time and the tokens of every turn, and asks you, as the
 support team, to approve or reject each refund. It works on a temporary copy of the database.
 
+### Over HTTP, in Docker
+
+The same agent behind a web API: customers talk to it, a reviewer decides the refunds. Who
+calls comes from a bearer token, never from the request body.
+
+```bash
+docker build -t brindle-agent .
+docker run --rm --network host \
+  -e BRINDLE_TOKENS="demo-c21=customer:C0021,demo-rev=reviewer" brindle-agent
+```
+
+With llama-server running as above, open http://127.0.0.1:8000/docs. A refund goes:
+`POST /conversations` → `POST /conversations/{id}/messages` (status `awaiting_approval`)
+→ `GET /approvals` (the reviewer sees the amount computed by the code) →
+`POST /approvals/{id}` (the agent finishes its turn). Without Docker:
+`BRINDLE_TOKENS=... uv run uvicorn reliable_tool_agent.api:app_from_env --factory`.
+
 ## Repository layout
 
 ```
-src/reliable_tool_agent/   world, database access, tools, MCP server, agent loop and graph
+src/reliable_tool_agent/   world, database access, tools, MCP server, agent loop and graph, API
 scripts/                   build the database, chat, run experiments
 experiments/               one folder per experiment: hypotheses, protocol, traces, results
 evaluation/                attack cases and cases found in chat sessions
