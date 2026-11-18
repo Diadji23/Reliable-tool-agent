@@ -248,11 +248,18 @@ def create_app(
 
     @app.post("/approvals/{conversation_id}")
     async def decide(conversation_id: str, body: DecisionsIn, _: Reviewer, svc: Svc) -> TurnOut:
-        """The reviewer's decisions on a conversation's pending refunds: to be written.
-
-        See the tests in tests/test_api_review.py for what it must do.
-        """
-        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "not written yet")
+        """The reviewer's decisions on a conversation's pending refunds; the agent then
+        finishes the paused turn, with the tools of the customer who owns the conversation."""
+        if conversation_id not in svc.owners:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "no such conversation")
+        async with svc.locks[conversation_id]:
+            # Checked under the lock: otherwise two reviewers could both see the refund
+            # pending, and both resume the conversation.
+            if conversation_id not in svc.pending:
+                raise HTTPException(status.HTTP_409_CONFLICT, "nothing awaits a decision here")
+            async with svc.agent(svc.owners[conversation_id]) as agent:
+                result = await agent.resume(conversation_id, body.decisions)
+            return svc.record(conversation_id, result)
 
     return app
 
