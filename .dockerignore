@@ -1,0 +1,13 @@
+# What `docker build` may see. Everything is excluded, then only what the image needs is
+# let back in: a new file (a secret, model weights, local runs) stays out by default.
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!LICENSE
+!src/
+!scripts/build_db.py
+!data/policies/
+# Even inside the allowed folders.
+**/__pycache__
+**/*.pyc
