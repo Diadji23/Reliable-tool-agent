@@ -44,11 +44,11 @@
   \node[font=\huge\bfseries] at (8, 8.65) {reliable-tool-agent --- architecture};
 
   % ---------------------------------------------------------------- customer and API
-  \node[planned=app, font=\large\bfseries, minimum width=1.6in, minimum height=1.0in]
+  \node[built=app, font=\large\bfseries, minimum width=1.6in, minimum height=1.0in]
     (customer) at (1.0, 5.1) {Customer};
-  \node[planned=app, minimum width=1.6in, minimum height=1.2in]
-    (api) at (1.0, 3.4) {FastAPI\\+ auth\\(session)};
-  \draw[darr, todo] (customer.south) -- (api.north);
+  \node[built=app, minimum width=1.6in, minimum height=1.2in]
+    (api) at (1.0, 3.4) {FastAPI\\bearer token\\(Docker)};
+  \draw[darr, app] (customer.south) -- (api.north);
 
   % ---------------------------------------------------------------- agent
   \node[built=agent, fill=agent!6, minimum width=6.3in, minimum height=5.35in, rounded corners=8pt]
@@ -70,7 +70,7 @@
     (hitl) at (5.65, 2.55)
     {Human approval before a refund \ (interrupt $\rightarrow$ reviewer $\rightarrow$ resume)};
   \draw[darr, agent] (loop.east) -- (llm.west |- loop.east);
-  \draw[darr, todo] (1.8, 3.4) -- (2.5, 3.9);
+  \draw[darr, app] (1.8, 3.4) -- (2.5, 3.9);
 
   % ---------------------------------------------------------------- MCP server
   \node[built=mcp, fill=mcp!6, minimum width=3.4in, minimum height=5.35in, rounded corners=8pt]
