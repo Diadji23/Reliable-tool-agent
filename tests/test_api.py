@@ -82,6 +82,12 @@ def test_health_needs_no_token(writable_db):
     assert response.status_code == 200 and response.json() == {"status": "ok"}
 
 
+def test_the_bare_url_leads_to_the_api_page(writable_db):
+    response = api([], writable_db).get("/", follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["location"] == "/docs"
+
+
 def test_each_role_is_refused_the_other_roles_routes(writable_db):
     client = api([], writable_db)
     assert client.post("/conversations", headers=auth("tok-rev")).status_code == 403

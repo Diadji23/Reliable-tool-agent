@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from langgraph.checkpoint.memory import InMemorySaver
 from mcp import Client
@@ -235,6 +236,11 @@ def create_app(
 ) -> FastAPI:
     app = FastAPI(title="Brindle Home support agent")
     app.state.service = Service(model, tokens, db_path, max_steps)
+
+    @app.get("/", include_in_schema=False)
+    async def home() -> RedirectResponse:
+        """A visitor opening the bare URL lands on the interactive API page."""
+        return RedirectResponse("/docs")
 
     @app.get("/health")
     async def health() -> dict:
