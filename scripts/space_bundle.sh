@@ -39,8 +39,27 @@ short_description: A tool-using support agent with human approval of refunds
 # Brindle Home support agent
 
 The HTTP API of a customer-support agent for a fictional shop: it answers order and
-return questions with tools, and every refund waits for a human reviewer. Calls need a
-bearer token (the demo's model runs on a free quota). Interactive API page: `/docs`.
+return questions with tools, and every refund waits for a human reviewer.
+
+## Try it
+
+Open `/docs` on this Space (the interactive API page), click **Authorize** and paste a
+token, then **Try it out** on a route:
+
+| Token | Role |
+|---|---|
+| `demo-customer` | customer C0021: start a conversation, ask about orders, ask for a refund |
+| `demo-reviewer` | the shop's reviewer: see pending refunds, approve or reject them |
+
+A conversation to try, as `demo-customer`: `POST /conversations`, then `POST
+/conversations/{id}/messages` with `{"text": "My pillow from O10040 arrived torn, please
+refund it."}`. The turn stops at `awaiting_approval`. Switch to `demo-reviewer`: `GET
+/approvals` shows the quote and your words, `POST /approvals/{id}` decides.
+
+**This is a shared demo.** The data is fictional and resets when the Space restarts; the
+reviewer token sees every visitor's pending messages, so type nothing personal. The model
+runs on a free quota: when it is used up, the API answers 503 and the demo is back the
+next day. An answer can take up to a minute.
 
 Code, design, evaluation and limits: https://github.com/Diadji23/Reliable-tool-agent
 EOF
