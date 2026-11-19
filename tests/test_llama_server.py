@@ -136,3 +136,56 @@ async def test_rate_limit_that_never_lifts_ends_in_an_error():
     )
     with pytest.raises(httpx.HTTPStatusError):
         await LlamaServerModel(client=client, max_retries=2).complete(MESSAGES, [])
+
+
+def tool_refused(message="parameters for tool quote_refund did not match schema"):
+    error = {"message": message, "code": "tool_use_failed", "failed_generation": "..."}
+    return httpx.Response(400, json={"error": error})
+
+
+async def test_refused_tool_call_is_asked_again_with_the_servers_error():
+    requests = []
+    answers = [
+        tool_refused(),
+        httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]}),
+    ]
+
+    def handler(request):
+        requests.append(json.loads(request.content))
+        return answers.pop(0)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    turn = await LlamaServerModel(client=client).complete(MESSAGES, TOOLS)
+    assert turn.content == "ok"
+    assert requests[0]["messages"] == MESSAGES
+    retry = requests[1]["messages"]
+    assert retry[:-1] == MESSAGES
+    assert retry[-1]["role"] == "user"
+    assert "not from the customer" in retry[-1]["content"]
+    assert "did not match schema" in retry[-1]["content"]
+
+
+async def test_tool_call_refused_every_time_ends_in_an_error():
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        return tool_refused()
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    with pytest.raises(httpx.HTTPStatusError):
+        await LlamaServerModel(client=client).complete(MESSAGES, TOOLS)
+    assert len(calls) == 3  # the first try and two corrections
+
+
+async def test_other_bad_requests_are_not_retried():
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        return httpx.Response(400, json={"error": {"message": "bad", "code": "other"}})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    with pytest.raises(httpx.HTTPStatusError):
+        await LlamaServerModel(client=client).complete(MESSAGES, TOOLS)
+    assert len(calls) == 1

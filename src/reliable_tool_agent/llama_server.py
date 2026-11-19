@@ -8,6 +8,12 @@ The same class works with any server speaking this API, local or hosted. For a h
 (the judge uses Groq): pass `api_key`, set `thinking=None` (the template switch is a
 llama-server extension that other servers refuse), put provider options in `extra` and
 allow a few `max_retries`.
+
+Some hosted servers (Groq) check the generated tool arguments against the tool's schema
+and answer "400 tool_use_failed" instead of returning the bad call. The agent loop would
+have shown the model its mistake; here the mistake never reaches it. So the adapter does
+the same thing itself: it asks again with the server's error message added, at most
+`TOOL_ERROR_RETRIES` times, without keeping that message in the conversation.
 """
 
 from __future__ import annotations
@@ -19,6 +25,29 @@ from typing import Any
 import httpx
 
 from reliable_tool_agent.agent_loop import AssistantTurn, Message, ToolCall
+
+TOOL_ERROR_RETRIES = 2
+
+
+def tool_use_error(response: httpx.Response) -> str | None:
+    """The server's message if it refused the model's tool call, else None."""
+    if response.status_code != 400:
+        return None
+    try:
+        error = response.json().get("error", {})
+    except ValueError:
+        return None
+    return error.get("message") if error.get("code") == "tool_use_failed" else None
+
+
+def correction(error: str) -> Message:
+    # A user turn because chat templates refuse a system message after the first one.
+    # Written by this code, not by the customer, and never stored in the conversation.
+    return {
+        "role": "user",
+        "content": f"[Automatic message, not from the customer] Your last tool call was "
+        f"refused: {error}. Call the tool again with valid arguments.",
+    }
 
 
 class LlamaServerModel:
@@ -60,6 +89,11 @@ class LlamaServerModel:
         if tools:
             payload["tools"] = tools
         response = await self._post(payload)
+        for _ in range(TOOL_ERROR_RETRIES):
+            error = tool_use_error(response)
+            if error is None:
+                break
+            response = await self._post({**payload, "messages": [*messages, correction(error)]})
         response.raise_for_status()
         body = response.json()
         message = body["choices"][0]["message"]
