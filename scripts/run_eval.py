@@ -5,6 +5,12 @@ Needs a running llama-server (see llama_server.py):
     uv run python scripts/run_eval.py experiments/<dir> --set tasks     # reference tasks
     uv run python scripts/run_eval.py experiments/<dir> --set attacks   # attack cases
 
+or a hosted OpenAI-compatible model (the key is read from GROQ_API_KEY, in the environment
+or in .env):
+
+    uv run python scripts/run_eval.py experiments/<dir> --set tasks \
+        --base-url https://api.groq.com/openai/v1 --model qwen/qwen3.8-27b
+
 Add --mlflow to record the run in the local MLflow (experiment agent-eval), and --trace to
 trace every turn (experiment agent-traces, one session per case).
 
@@ -18,6 +24,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import platform
 import time
 from pathlib import Path
@@ -28,6 +35,16 @@ from reliable_tool_agent.db import DEFAULT_DB_PATH
 from reliable_tool_agent.eval_runner import check, check_task, load_cases, load_tasks, run_case
 from reliable_tool_agent.llama_server import LlamaServerModel
 from reliable_tool_agent.prompts import system_prompt
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def load_env(path: Path = ROOT / ".env") -> None:
+    if path.exists():
+        for line in path.read_text().splitlines():
+            key, sep, value = line.partition("=")
+            if sep and not key.startswith("#"):
+                os.environ.setdefault(key.strip(), value.strip())
 
 
 class TimedModel:
@@ -44,10 +61,22 @@ class TimedModel:
         return turn
 
 
+def make_model(base_url: str, name: str | None, api_key: str | None) -> LlamaServerModel:
+    if name is None:
+        return LlamaServerModel(base_url=base_url)
+    # Same settings as the deployed API (api.app_from_env): retries for rate limits.
+    return LlamaServerModel(
+        base_url=base_url, model=name, thinking=None, api_key=api_key, max_retries=8
+    )
+
+
 async def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("experiment_dir", type=Path)
     parser.add_argument("--base-url", default="http://127.0.0.1:8080/v1")
+    parser.add_argument(
+        "--model", help="hosted model name (key from GROQ_API_KEY); default: local llama-server"
+    )
     parser.add_argument("--max-steps", type=int, default=8)
     parser.add_argument("--set", choices=["tasks", "attacks"], required=True)
     parser.add_argument("--only", nargs="*", help="case ids to run (default: all)")
@@ -61,13 +90,19 @@ async def main() -> None:
     logging.getLogger("mcp").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
-    props = httpx.get(args.base_url.removesuffix("/v1") + "/props").json()
-    meta = {
-        "model_path": props.get("model_path"),
-        "n_ctx": props.get("default_generation_settings", {}).get("n_ctx"),
-        "build": props.get("build_info"),
-        "machine": platform.processor() or platform.machine(),
-    }
+    if args.model:  # hosted: no /props, the model name is all we know
+        load_env()
+        api_key = os.environ["GROQ_API_KEY"]
+        meta = {"model_path": args.model, "n_ctx": None, "build": args.base_url, "machine": None}
+    else:
+        api_key = None
+        props = httpx.get(args.base_url.removesuffix("/v1") + "/props").json()
+        meta = {
+            "model_path": props.get("model_path"),
+            "n_ctx": props.get("default_generation_settings", {}).get("n_ctx"),
+            "build": props.get("build_info"),
+            "machine": platform.processor() or platform.machine(),
+        }
     print(json.dumps(meta))
 
     cases, checker = (load_tasks(), check_task) if args.set == "tasks" else (load_cases(), check)
@@ -81,7 +116,7 @@ async def main() -> None:
     batch = time.strftime("%Y%m%d-%H%M%S")  # names this run's sessions in MLflow
     with (args.experiment_dir / args.out).open("w") as out:
         for case in cases:
-            model = TimedModel(LlamaServerModel(base_url=args.base_url))
+            model = TimedModel(make_model(args.base_url, args.model, api_key))
             session = f"eval-{batch}-{case['id']}" if args.trace else None
             run = await run_case(
                 case, model, DEFAULT_DB_PATH, system_prompt(), args.max_steps, session
@@ -116,7 +151,7 @@ async def main() -> None:
             params={
                 "case_set": args.set,
                 "only": " ".join(args.only) if args.only else "all",
-                "agent_model": Path(meta["model_path"] or "unknown").name,
+                "agent_model": args.model or Path(meta["model_path"] or "unknown").name,
                 "server_build": meta["build"],
                 "n_ctx": meta["n_ctx"],
                 "max_steps": args.max_steps,
