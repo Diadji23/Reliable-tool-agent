@@ -60,6 +60,35 @@ async def test_second_message_sees_the_first_exchange(shop_db, owner_and_order):
     assert roles(result.messages).count("system") == 1
 
 
+class FailsOnce:
+    """A model whose server fails on the first call, then answers."""
+
+    def __init__(self, answer: str):
+        self.answer, self.calls, self.seen = answer, 0, []
+
+    async def complete(self, messages, tools):
+        self.calls += 1
+        self.seen.append(list(messages))
+        if self.calls == 1:
+            raise RuntimeError("model server down")
+        return AssistantTurn(self.answer)
+
+
+async def test_a_turn_that_crashed_does_not_block_the_thread(shop_db, owner_and_order):
+    owner, _ = owner_and_order
+    model = FailsOnce("Delivered.")
+    async with Client(build_server(Session(owner, shop_db))) as client:
+        agent = GraphAgent(model, McpToolbox(client), SYSTEM, InMemorySaver())
+        with pytest.raises(RuntimeError, match="model server down"):
+            await agent.ask("t1", "Where is my order?")
+        result = await agent.ask("t1", "Hello? Where is my order?")
+
+    assert result.answer == "Delivered."
+    # The unanswered message stays in the conversation, before the new one.
+    assert roles(model.seen[1]) == ["system", "user", "user"]
+    assert model.seen[1][-1]["content"] == "Hello? Where is my order?"
+
+
 async def test_threads_are_isolated(shop_db, owner_and_order):
     owner, order_id = owner_and_order
     model = ScriptedModel([get_order(order_id), AssistantTurn("Delivered."), AssistantTurn("Hi")])

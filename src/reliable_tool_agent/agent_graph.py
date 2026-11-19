@@ -251,7 +251,10 @@ class GraphAgent:
     async def ask(self, thread_id: str, user_message: str) -> AgentResult:
         graph, config = await self._ready(thread_id)
         saved = await graph.aget_state(config)
-        if saved.next:
+        # A paused turn is one stopped by interrupt(). A turn that crashed (model server
+        # down) also leaves a node to run in `next`, but nothing awaits a decision: the new
+        # message starts a new turn after the unanswered one, instead of blocking forever.
+        if saved.interrupts:
             raise RuntimeError(f"Thread {thread_id!r} awaits a reviewer's decision: resume it.")
         new: list[Message] = (
             [] if saved.values else [{"role": "system", "content": self.system_prompt}]
@@ -265,7 +268,7 @@ class GraphAgent:
         A pending call without a decision is treated as rejected.
         """
         graph, config = await self._ready(thread_id)
-        if not (await graph.aget_state(config)).next:
+        if not (await graph.aget_state(config)).interrupts:
             raise RuntimeError(f"Thread {thread_id!r} is not waiting for a decision.")
         answers = {
             call_id: Decision.model_validate(d).model_dump() for call_id, d in decisions.items()
