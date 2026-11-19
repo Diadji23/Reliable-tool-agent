@@ -7,7 +7,7 @@ import json
 import httpx
 import pytest
 
-from reliable_tool_agent.llama_server import LlamaServerModel
+from reliable_tool_agent.llama_server import LlamaServerModel, ModelUnavailableError
 
 pytestmark = pytest.mark.anyio
 
@@ -91,7 +91,7 @@ async def test_object_arguments_and_missing_id_are_normalised():
 async def test_server_error_raises():
     """A broken server is our problem, not the model's: it must not pass silently."""
     client = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(500)))
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ModelUnavailableError):
         await LlamaServerModel(client=client).complete(MESSAGES, TOOLS)
 
 
@@ -134,8 +134,10 @@ async def test_rate_limit_that_never_lifts_ends_in_an_error():
     client = httpx.AsyncClient(
         transport=httpx.MockTransport(lambda r: httpx.Response(429, headers={"retry-after": "0"}))
     )
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ModelUnavailableError) as raised:
         await LlamaServerModel(client=client, max_retries=2).complete(MESSAGES, [])
+    assert raised.value.status_code == 429
+    assert raised.value.retry_after == 0
 
 
 def tool_refused(message="parameters for tool quote_refund did not match schema"):
@@ -188,4 +190,19 @@ async def test_other_bad_requests_are_not_retried():
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     with pytest.raises(httpx.HTTPStatusError):
         await LlamaServerModel(client=client).complete(MESSAGES, TOOLS)
+    assert len(calls) == 1
+
+
+async def test_a_wait_longer_than_allowed_fails_at_once_instead_of_sleeping():
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        return httpx.Response(429, headers={"retry-after": "3600"})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    model = LlamaServerModel(client=client, max_retries=5, max_wait_s=60)
+    with pytest.raises(ModelUnavailableError) as raised:
+        await model.complete(MESSAGES, [])
+    assert raised.value.retry_after == 3600
     assert len(calls) == 1

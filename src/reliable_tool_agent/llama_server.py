@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import Any
 
 import httpx
@@ -27,6 +28,19 @@ import httpx
 from reliable_tool_agent.agent_loop import AssistantTurn, Message, ToolCall
 
 TOOL_ERROR_RETRIES = 2
+
+log = logging.getLogger(__name__)
+
+
+class ModelUnavailableError(Exception):
+    """The model server is out of quota or failing: not the request's fault, try later.
+
+    `retry_after` is the wait the server asked for, in seconds (None if it gave none)."""
+
+    def __init__(self, status_code: int, retry_after: float | None):
+        super().__init__(f"model server answered {status_code}, retry after {retry_after} s")
+        self.status_code = status_code
+        self.retry_after = retry_after
 
 
 def tool_use_error(response: httpx.Response) -> str | None:
@@ -62,6 +76,7 @@ class LlamaServerModel:
         api_key: str | None = None,
         extra: dict[str, Any] | None = None,
         max_retries: int = 0,
+        max_wait_s: float | None = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -76,6 +91,9 @@ class LlamaServerModel:
         self.extra = extra or {}
         # 0 for the local server: an error there is a bug to see at once, not to wait out.
         self.max_retries = max_retries
+        # A batch run can wait out a quota; a customer cannot. Beyond this wait, give up at
+        # once (ModelUnavailableError) instead of sleeping. None: no limit.
+        self.max_wait_s = max_wait_s
 
     async def complete(self, messages: list[Message], tools: list[dict]) -> AssistantTurn:
         payload: dict[str, Any] = {
@@ -118,15 +136,35 @@ class LlamaServerModel:
         """POST, waiting and retrying on "too many requests" (429) and server errors (5xx).
 
         A free tier limits tokens per minute, and hosted APIs fail now and then on their
-        side; in both cases the request itself was fine and waiting is enough.
+        side; in both cases the request itself was fine and waiting is enough. When the
+        retries run out, or the wait asked is longer than `max_wait_s`, it raises
+        ModelUnavailableError. Every retry is logged: a slow turn must say why.
         """
         url = f"{self.base_url}/chat/completions"
-        for _ in range(self.max_retries):
+        for attempt in range(self.max_retries + 1):
             response = await self.client.post(url, json=payload, headers=self.headers)
             if response.status_code != 429 and response.status_code < 500:
                 return response
-            await asyncio.sleep(float(response.headers.get("retry-after", 10)))
-        return await self.client.post(url, json=payload, headers=self.headers)
+            asked = response.headers.get("retry-after")
+            wait = float(asked) if asked is not None else 10.0
+            if attempt == self.max_retries or (
+                self.max_wait_s is not None and wait > self.max_wait_s
+            ):
+                log.warning(
+                    "model server %s, asked to wait %s s: giving up", response.status_code, asked
+                )
+                raise ModelUnavailableError(
+                    response.status_code, float(asked) if asked is not None else None
+                )
+            log.warning(
+                "model server %s, retry %d/%d in %.1f s",
+                response.status_code,
+                attempt + 1,
+                self.max_retries,
+                wait,
+            )
+            await asyncio.sleep(wait)
+        raise AssertionError("unreachable")
 
     async def aclose(self) -> None:
         await self.client.aclose()

@@ -31,8 +31,8 @@ import os
 import shutil
 import tempfile
 import uuid
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated, Literal
@@ -46,6 +46,7 @@ from pydantic import BaseModel, Field
 from reliable_tool_agent.agent_graph import Decision, GraphAgent
 from reliable_tool_agent.agent_loop import AgentResult, ChatModel, McpToolbox
 from reliable_tool_agent.db import DEFAULT_DB_PATH
+from reliable_tool_agent.llama_server import ModelUnavailableError
 from reliable_tool_agent.mcp_server import build_server
 from reliable_tool_agent.prompts import system_prompt
 from reliable_tool_agent.tools import Session
@@ -206,6 +207,26 @@ class DecisionsIn(BaseModel):
     decisions: dict[str, Decision]  # tool_call_id -> decision; a missing one is a rejection
 
 
+@contextmanager
+def model_unavailable_is_503() -> Iterator[None]:
+    """Model out of quota or down: 503 with the wait the model server asked for.
+
+    Not a 500 (nothing is broken here) and not a hang. The error arrives wrapped in an
+    exception group by the MCP client's task group, hence the search inside it."""
+    try:
+        yield
+    except* ModelUnavailableError as group:
+        error = group.exceptions[0]
+        while isinstance(error, BaseExceptionGroup):
+            error = error.exceptions[0]
+        headers = {"Retry-After": str(int(error.retry_after))} if error.retry_after else None
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "the model is over its quota or unavailable, try again later",
+            headers=headers,
+        ) from None
+
+
 # --- The app ---------------------------------------------------------------------------
 
 
@@ -238,8 +259,9 @@ def create_app(
                 raise HTTPException(
                     status.HTTP_409_CONFLICT, "a refund in this conversation awaits a reviewer"
                 )
-            async with svc.agent(customer_id) as agent:
-                result = await agent.ask(conversation_id, message.text)
+            with model_unavailable_is_503():
+                async with svc.agent(customer_id) as agent:
+                    result = await agent.ask(conversation_id, message.text)
             return svc.record(conversation_id, result)
 
     @app.get("/approvals")
@@ -264,8 +286,9 @@ def create_app(
             # pending, and both resume the conversation.
             if conversation_id not in svc.pending:
                 raise HTTPException(status.HTTP_409_CONFLICT, "nothing awaits a decision here")
-            async with svc.agent(svc.owners[conversation_id]) as agent:
-                result = await agent.resume(conversation_id, body.decisions)
+            with model_unavailable_is_503():
+                async with svc.agent(svc.owners[conversation_id]) as agent:
+                    result = await agent.resume(conversation_id, body.decisions)
             return svc.record(conversation_id, result)
 
     return app
@@ -292,6 +315,7 @@ def app_from_env() -> FastAPI:
         thinking=None if api_key else False,  # the thinking switch is llama-server's only
         api_key=api_key,
         max_retries=5 if api_key else 0,
+        max_wait_s=60,  # a customer waits a minute at most for a quota, then gets a 503
     )
     workdir = Path(tempfile.mkdtemp(prefix="brindle-api-"))
     db_path = Path(shutil.copyfile(DEFAULT_DB_PATH, workdir / "shop.db"))

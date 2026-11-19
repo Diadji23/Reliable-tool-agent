@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from reliable_tool_agent.agent_loop import AssistantTurn, ToolCall
 from reliable_tool_agent.api import Caller, create_app, parse_tokens
 from reliable_tool_agent.fake_model import ScriptedModel
+from reliable_tool_agent.llama_server import ModelUnavailableError
 
 TOKENS = {
     "tok-c21": Caller("customer", "C0021"),
@@ -120,6 +121,33 @@ def test_customer_gets_the_agents_answer(writable_db):
         "status": "answered",
         "answer": "Delivered on 2026-10-13.",
     }
+
+
+class OutOfQuotaOnce:
+    """A model server whose quota runs out on the first call, then answers."""
+
+    def __init__(self):
+        self.calls = 0
+
+    async def complete(self, messages, tools):
+        self.calls += 1
+        if self.calls == 1:
+            raise ModelUnavailableError(429, retry_after=3600)
+        return AssistantTurn("Delivered on 2026-10-13.")
+
+
+def test_model_out_of_quota_is_503_and_the_conversation_goes_on(writable_db):
+    client = TestClient(create_app(OutOfQuotaOnce(), TOKENS, writable_db))
+    conversation = start(client)
+    url, message = f"/conversations/{conversation}/messages", {"text": "Where is O10040?"}
+
+    response = client.post(url, json=message, headers=auth("tok-c21"))
+    assert response.status_code == 503
+    assert response.headers["retry-after"] == "3600"
+
+    response = client.post(url, json=message, headers=auth("tok-c21"))
+    assert response.status_code == 200
+    assert response.json()["answer"] == "Delivered on 2026-10-13."
 
 
 def test_the_customer_id_comes_from_the_token_not_from_the_body(writable_db):
