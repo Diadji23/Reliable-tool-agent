@@ -42,3 +42,12 @@ the API: `api.app_from_env` with `MODEL_API_KEY` set), up to 8 retries honouring
 https://api.groq.com/openai/v1 --model qwen/qwen3.8-27b --mlflow`, same 28 tasks and
 scripted reviewer as experiment 04. Every answer is read by hand against its `expected`
 field. One run per task: one sample, not a rate.
+
+**First attempt stopped at task 17** (`t-refund-rejected-by-reviewer`): Groq answered
+`400 tool_use_failed`. It checks the generated arguments against the tool schema itself,
+and the model had written `condition = "def defective_or_wrong"`. The agent loop would
+have shown the model its mistake, but the bad call never reached it: the whole turn
+crashed (in the API, a 500 for the customer). The probe of `qwen3.8-27b` had hit the same
+400 once before passing. Fix (commit after this note's first version): the adapter asks
+again with the server's error added, at most twice. The run below is a full re-run of
+the 28 tasks on that code; the hypotheses are unchanged.
