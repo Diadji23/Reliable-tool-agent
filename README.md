@@ -1,5 +1,7 @@
 # reliable-tool-agent
 
+[![CI](https://github.com/Diadji23/Reliable-tool-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/Diadji23/Reliable-tool-agent/actions/workflows/ci.yml)
+
 A customer-support agent for a fictional home-goods shop, built as a complete system
 rather than a demo: tools served over MCP, LangGraph orchestration, human approval before
 any refund, guardrails measured against attacks, and an evaluation that checks the
