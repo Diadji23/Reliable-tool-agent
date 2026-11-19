@@ -29,28 +29,3 @@ jobs:
       - name: Smoke test
         run: scripts/docker_smoke.sh brindle-agent
 
-  # Continuous deployment: once tests and image are green on main, publish to the
-  # Hugging Face Space, which rebuilds the image and restarts the demo. Needs the
-  # repository variable HF_SPACE ("user/space") and the secret HF_TOKEN (write access to
-  # that Space); without HF_SPACE the job is skipped.
-  deploy:
-    needs: [test, docker]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.HF_SPACE != ''
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Bundle what the Space builds
-        run: scripts/space_bundle.sh "$RUNNER_TEMP/space"
-      - name: Push to the Space
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          HF_SPACE: ${{ vars.HF_SPACE }}
-        working-directory: ${{ runner.temp }}/space
-        # One fresh commit each time, forced: the history lives on GitHub, the Space only
-        # holds what runs. The commit names the GitHub commit it was built from.
-        run: |
-          git init -q -b main
-          git add -A
-          git -c user.name=ci -c user.email=ci@users.noreply.github.com \
-            commit -q -m "Deploy ${GITHUB_SHA::7} from github.com/${GITHUB_REPOSITORY}"
-          git push --force "https://ci:${HF_TOKEN}@huggingface.co/spaces/${HF_SPACE}" main

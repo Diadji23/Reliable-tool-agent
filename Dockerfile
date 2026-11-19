@@ -38,6 +38,9 @@ USER agent
 
 ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1
 EXPOSE 8000
+# The port: $PORT when the platform sets one (Render does), else 8000. A shell is needed to
+# read it; `exec` makes uvicorn replace that shell, so it gets the platform's stop signal.
+ENV PORT=8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"
-CMD ["uvicorn", "reliable_tool_agent.api:app_from_env", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+    CMD python -c "import os, urllib.request; urllib.request.urlopen(f'http://127.0.0.1:{os.environ[\"PORT\"]}/health')"
+CMD ["sh", "-c", "exec uvicorn reliable_tool_agent.api:app_from_env --factory --host 0.0.0.0 --port $PORT"]
