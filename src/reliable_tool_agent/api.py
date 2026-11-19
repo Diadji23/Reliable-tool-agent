@@ -2,6 +2,7 @@
 
     POST /conversations                   customer  start a conversation
     POST /conversations/{id}/messages     customer  send a message, get the agent's answer
+    GET  /                                anyone    redirects to /docs, the interactive API page
     GET  /health                          anyone    is the server up
     GET  /approvals                       reviewer  refunds waiting for a decision
     POST /approvals/{id}                  reviewer  decide them; the agent finishes its turn
