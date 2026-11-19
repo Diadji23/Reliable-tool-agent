@@ -18,3 +18,13 @@ jobs:
           uv run ruff format --check .
       - name: Test
         run: uv run pytest
+
+  # The image a deployment would run: does it build, start and check tokens?
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image
+        run: docker build -t brindle-agent .
+      - name: Smoke test
+        run: scripts/docker_smoke.sh brindle-agent
