@@ -264,6 +264,39 @@ node; the approved amount comes from the decision, not from that new quote).
 - **Cost.** The model runs locally: the cost is zero and the traces record tokens. A
   hosted model would add its price per token.
 
+## Deployment
+
+The demo runs the Docker image on Render's free tier, built from this repository after
+CI passes; settings come from environment variables (`BRINDLE_TOKENS`, `MODEL_BASE_URL`,
+`MODEL_NAME`, `MODEL_API_KEY`), the image listens on the `$PORT` the platform gives. The
+container uses about 110 MB at rest.
+
+**The model.** Qwen3.5-4B cannot serve a demo on a shared free CPU (two minutes for a
+first answer on the laptop already), so the demo calls `qwen/qwen3.8-27b` on Groq's free
+tier, chosen by probes and evaluated on the same tasks (experiment 06): every result of
+experiments 01–05 is about the 4B model, experiment 06 about the demo's.
+
+**What a hosted API added**, all found by running it:
+
+- Groq validates tool arguments itself and answers `400 tool_use_failed` instead of
+  returning a bad call. The adapter sends the error back to the model as a correction (at
+  most twice), as the agent loop does for its own validation.
+- Two quotas: 7,000–8,000 input tokens a minute (in the response headers) and 200,000
+  tokens a day (only in the 429 error text). A refund conversation costs 10,000–14,000
+  tokens. The adapter waits out short limits, logs every retry, and gives up when asked
+  to wait more than 60 s: the API then answers 503 with `Retry-After`, in under a second,
+  instead of holding the customer.
+- A turn that crashes leaves a node to run in the checkpoint. A paused turn is now
+  recognised by its interrupt, not by any pending node, so the next message starts a new
+  turn instead of being refused forever.
+- The hosted Qwen once leaked its reasoning into the answer before a `</think>` tag; the
+  adapter keeps only what follows it.
+
+**Open by design.** The demo tokens are public: the worst cases are bounded (fictional
+data reset on restart, a free tier with no card that can only run out, not bill), and a
+demo nobody can open shows nothing. The cost: the reviewer token sees every visitor's
+pending messages, which the README says.
+
 ## Known limits
 
 - `search_policies` has no synonyms, returns at most 3 rules (a 5-way tie cut the rule on
@@ -276,6 +309,11 @@ node; the approved amount comes from the decision, not from that new quote).
 - After a rejection, the model asks for the same refund again each time the customer
   insists (the reviewer is asked again, nothing is issued).
 - In the terminal chat, Ctrl-C while the model is working prints a traceback.
+- Not built: a `cancel_order` tool (the agent says it cannot cancel), trimming of long
+  conversations, and an output check in code (the LLM judge reads the words instead).
+- The demo keeps conversations and the database copy in memory: a restart (or Render
+  putting the service to sleep) loses them. The demo's model asks for a confirmation the
+  customer already gave before a refund (experiment 06).
 - Results come from one run per case at temperature 0, with a 4B model on a laptop CPU:
   one sample, not a rate. Temperature 0 does not make a run repeatable here: two runs of
   the same tasks took different paths (experiment 04).

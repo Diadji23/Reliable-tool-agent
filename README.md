@@ -6,17 +6,13 @@ A customer-support agent for a fictional home-goods shop, built as a complete sy
 rather than a demo: tools served over MCP, LangGraph orchestration, human approval before
 any refund, guardrails measured against attacks, and an evaluation that checks the
 **final state of the database**, not only the wording of the answer. Runs on a 4B local
-model on a laptop CPU, at zero cost.
+model on a laptop CPU, and online with a hosted model on free tiers, at zero cost.
 
-> **Status: work in progress.** Built: the shop, six tools over MCP, the agent (hand-written
-> loop and LangGraph graph), conversation memory, human approval, the first guardrails,
-> an evaluation on the database state plus a calibrated LLM judge, tracked in MLflow,
-> a trace of every turn (model and tool calls, latency, tokens), and an HTTP API in a
-> Docker image. Planned: deployment.
+**Live demo:** https://brindle-support-agent.onrender.com (see [Try the demo](#try-the-demo)).
 
 ![Architecture](docs/architecture.png)
 
-*Solid boxes are built, dashed grey boxes are planned. Source: [`docs/architecture.tex`](docs/architecture.tex) (TikZ).*
+*Source: [`docs/architecture.tex`](docs/architecture.tex) (TikZ).*
 
 ## What makes it reliable
 
@@ -31,7 +27,7 @@ model on a laptop CPU, at zero cost.
   can insert into one table and do nothing else.
 - **Untrusted text is kept away from the model.** A carrier note planted with prompt
   injections never reaches it ([threat model](docs/threat-model.md)).
-- **Tested without a model.** 230+ tests drive the agent with a scripted model against the
+- **Tested without a model.** 240+ tests drive the agent with a scripted model against the
   real MCP server; deliberately breaking the code makes them fail.
 
 Details, reasons and known limits: [`docs/design.md`](docs/design.md).
@@ -45,6 +41,7 @@ Details, reasons and known limits: [`docs/design.md`](docs/design.md).
 | [03 — guardrails](experiments/03-guardrail-baseline/README.md) | Indirect prompt injections resisted: 2/7 before, 7/7 after keeping the carrier note away from the model; 20/23 attack and borderline cases overall |
 | [04 — reference tasks](experiments/04-reference-tasks/README.md) | 26/28 right final database state, 22/28 right by hand: the failures the database cannot see are in the words (promises, offers without a tool) |
 | [05 — LLM judge](experiments/05-judge-calibration/README.md) | Judge agrees with hand labels on 24/28 held-out conversations (3/4 failures caught); misses promises made after a rejection |
+| [06 — the demo's model](experiments/06-hosted-model/README.md) | Hosted Qwen 27B: 28/28 right final states, 24/28 right by hand; found two crashes only a hosted API causes, and a hidden 200k tokens/day limit |
 
 Every experiment states its hypotheses before the run and reads the answers by hand.
 
@@ -83,6 +80,28 @@ With llama-server running as above, open http://127.0.0.1:8000/docs. A refund go
 → `GET /approvals` (the reviewer sees the amount computed by the code) →
 `POST /approvals/{id}` (the agent finishes its turn). Without Docker:
 `BRINDLE_TOKENS=... uv run uvicorn reliable_tool_agent.api:app_from_env --factory`.
+
+## Try the demo
+
+Open https://brindle-support-agent.onrender.com: it leads to the interactive API page.
+Click **Authorize**, paste a token, then **Try it out** on a route.
+
+| Token | Role |
+|---|---|
+| `demo-customer` | customer C0021: start a conversation, ask about orders, ask for a refund |
+| `demo-reviewer` | the shop's reviewer: see pending refunds, approve or reject them |
+
+As `demo-customer`: `POST /conversations`, then `POST /conversations/{id}/messages` with
+`{"text": "My pillow from O10040 arrived torn, please refund it."}` (answer "yes" if it asks
+to confirm). The turn stops at `awaiting_approval`. As `demo-reviewer`: `GET /approvals`
+shows the amount and the customer's words; `POST /approvals/{id}` with
+`{"decisions": {"<tool_call_id>": {"approved": true, "amount_cents": 5090}}}` lets the
+agent finish.
+
+A shared demo on free tiers: the data is fictional and resets on restart, the reviewer
+token sees every visitor's pending messages (type nothing personal), the first request
+after 15 idle minutes takes about a minute, and the model has about 15 refund
+conversations a day; past that the API answers 503 until the quota frees up.
 
 ## Repository layout
 
