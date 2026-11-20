@@ -229,6 +229,15 @@ def model_unavailable_is_503() -> Iterator[None]:
         ) from None
 
 
+# Declared on the routes that call the model, so the API page explains a 503.
+MODEL_ROUTES = {
+    503: {
+        "description": "The model is over its quota or unavailable; retry after the delay "
+        "in the Retry-After header"
+    }
+}
+
+
 # --- The app ---------------------------------------------------------------------------
 
 
@@ -256,7 +265,7 @@ def create_app(
         svc.locks[conversation_id] = asyncio.Lock()
         return ConversationOut(conversation_id=conversation_id)
 
-    @app.post("/conversations/{conversation_id}/messages")
+    @app.post("/conversations/{conversation_id}/messages", responses=MODEL_ROUTES)
     async def send_message(
         conversation_id: str, message: MessageIn, customer_id: Customer, svc: Svc
     ) -> TurnOut:
@@ -282,7 +291,7 @@ def create_app(
             for conversation_id, requests in svc.pending.items()
         ]
 
-    @app.post("/approvals/{conversation_id}")
+    @app.post("/approvals/{conversation_id}", responses=MODEL_ROUTES)
     async def decide(conversation_id: str, body: DecisionsIn, _: Reviewer, svc: Svc) -> TurnOut:
         """The reviewer's decisions on a conversation's pending refunds; the agent then
         finishes the paused turn, with the tools of the customer who owns the conversation."""
