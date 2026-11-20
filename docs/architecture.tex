@@ -4,7 +4,6 @@
 % Needs TikZ (Debian/Ubuntu: texlive-pictures). No `standalone` class, which lives in the
 % much larger texlive-latex-extra: the page size is set with geometry instead.
 %
-% To mark a component as built, change its style from `planned=<colour>` to `built=<colour>`.
 
 \documentclass{article}
 \usepackage[paperwidth=16.4in, paperheight=9.4in, margin=0.3in]{geometry}
@@ -47,25 +46,21 @@
   \node[built=app, font=\large\bfseries, minimum width=1.6in, minimum height=1.0in]
     (customer) at (1.0, 5.1) {Customer};
   \node[built=app, minimum width=1.6in, minimum height=1.2in]
-    (api) at (1.0, 3.4) {FastAPI\\bearer token\\(Docker)};
+    (api) at (1.0, 3.4) {FastAPI\\bearer token\\Docker $\cdot$ Render};
   \draw[darr, app] (customer.south) -- (api.north);
 
   % ---------------------------------------------------------------- agent
   \node[built=agent, fill=agent!6, minimum width=6.3in, minimum height=5.35in, rounded corners=8pt]
     (agent) at (5.65, 4.625) {};
   \node[frametitle] at (5.65, 6.98) {Agent (LangGraph)};
-  \node[planned=guard, minimum width=5.7in, minimum height=0.75in]
-    (guardin) at (5.65, 6.225) {Input guardrails --- prompt injection, out-of-scope refusal};
+  \node[built=guard, minimum width=5.7in, minimum height=0.75in]
+    (guardin) at (5.65, 6.225) {Guardrails --- untrusted third-party text kept out of the context};
   \node[built=agent, minimum width=3.5in, minimum height=0.85in]
     (loop) at (4.55, 5.175) {LLM $\rightleftarrows$ tool calls\\(state graph)};
   \node[built=agent, font=\normalsize, minimum width=1.7in, minimum height=0.55in]
-    (memory) at (3.65, 4.375) {memory (checkpointer)};
-  \node[planned=agent, font=\normalsize, minimum width=1.7in, minimum height=0.55in]
-    (context) at (5.45, 4.375) {context management};
+    (memory) at (4.55, 4.375) {memory (checkpointer)};
   \node[built=agent, font=\normalsize, minimum width=1.95in, minimum height=1.5in]
-    (llm) at (7.525, 4.85) {Local LLM\\(llama.cpp)\\/ free API};
-  \node[planned=guard, minimum width=5.7in, minimum height=0.7in]
-    (guardout) at (5.65, 3.5) {Output validation --- structured answer (Pydantic)};
+    (llm) at (7.525, 4.85) {Local LLM\\(llama.cpp)\\/ Groq (demo)};
   \node[built=guard, minimum width=5.7in, minimum height=0.7in]
     (hitl) at (5.65, 2.55)
     {Human approval before a refund \ (interrupt $\rightarrow$ reviewer $\rightarrow$ resume)};
@@ -82,7 +77,6 @@
   \node[built=mcp,   minimum width=2.8in, minimum height=0.45in] at (11.3, 4.65) {check\_return\_eligibility};
   \node[built=mcp,   minimum width=2.8in, minimum height=0.45in] at (11.3, 4.05) {quote\_refund};
   \node[built=mcp,   minimum width=2.8in, minimum height=0.45in] at (11.3, 3.45) {refund\_order$^\dagger$};
-  \node[planned=mcp, minimum width=2.8in, minimum height=0.45in] at (11.3, 2.85) {cancel\_order$^\dagger$};
   \node[note] at (11.3, 2.25) {$^\dagger$ sensitive: needs human approval};
 
   \draw[darr, mcp] (8.8, 4.85) -- (9.6, 4.85);
@@ -120,10 +114,6 @@
 
   % ---------------------------------------------------------------- legend
   \begin{scope}[shift={(13.5, 8.2)}]
-    \node[built=mcp, minimum width=0.35in, minimum height=0.16in] at (0, 0.5) {};
-    \node[anchor=west, font=\large] at (0.3, 0.5) {built};
-    \node[planned=mcp, minimum width=0.35in, minimum height=0.16in] at (0, 0.2) {};
-    \node[anchor=west, font=\large] at (0.3, 0.2) {planned};
     \draw[app, line width=1.1pt, dash pattern=on 2pt off 2pt] (-0.17, -0.1) -- (0.17, -0.1);
     \node[anchor=west, font=\large] at (0.3, -0.1) {trusted identity path};
   \end{scope}
