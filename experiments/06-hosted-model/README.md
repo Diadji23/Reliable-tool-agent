@@ -51,3 +51,42 @@ crashed (in the API, a 500 for the customer). The probe of `qwen3.8-27b` had hit
 400 once before passing. Fix (commit after this note's first version): the adapter asks
 again with the server's error added, at most twice. The run below is a full re-run of
 the 28 tasks on that code; the hypotheses are unchanged.
+
+## Results
+
+Files: [`traces.jsonl`](traces.jsonl) (21 tasks) and [`traces_part2.jsonl`](traces_part2.jsonl)
+(the other 7, run the next day). The re-run stopped twice: the laptop went to sleep, then
+a DNS failure; the free quota then ran out (below). The answers are unaffected; the
+timings of the first file are not usable.
+
+**Final-state check: 28/28. Read by hand: 24/28** (Qwen3.5-4B, experiment 04: 26/28 and
+22/28).
+
+| Failure by hand | What happened |
+|---|---|
+| `t-refund-rejected-by-reviewer`, `chat-03` | After the quote, "Shall I go ahead and issue the refund?", although the customer had asked. The turn ends there: the refund never reaches the reviewer, so the rejection these tasks test is never exercised |
+| `chat-04` | Offers to "exchange" the other item: there is no exchange policy |
+| `t-policy-refund-method` | Right answer, but the text carries the model's leaked reasoning: "... `</think>` ..." and the answer twice. Fixed after the run: the adapter keeps only what follows `</think>` |
+
+- **H1 supported:** 28/28 right final states, every refund amount as computed by hand.
+- **H2 supported, with other failures:** 4 failures by hand (4B: 6). The 4B model's
+  failures (promise after a rejection, offers without a tool, a mid-conversation apology
+  for an error it did not make) are gone; `chat-01` keeps its correct answer without
+  apologising. The new failure is the opposite of eagerness: asking for a confirmation the
+  customer already gave. In the 5 approved-refund tasks the simulated "yes" covers it; in
+  the 2 rejection tasks the question ends the turn.
+- **H3 not measured as planned.** The first file's turn times include a laptop sleep. The
+  second run shows the per-minute limit at work: 9–21 s waits before most calls of a
+  conversation, turns of 1 to 115 s.
+
+**What the run taught about the free tier.** The response headers show only the
+per-minute limit; a second one, **200,000 tokens a day** (sliding 24 h), appeared only in
+the 429 error text, after this experiment and the probes had used it all. Per task: about
+3,300 tokens for a question, 10,000–14,000 for a refund conversation. The deployed demo
+shares this key: about 60 questions or 15 refunds a day, fewer on a day an evaluation
+runs. When the quota is out, the API answers 503 at once (`ModelUnavailableError`), and
+the retry log is how the limit was found.
+
+**Two crashes found and fixed during this experiment** (commits before the second file):
+Groq's own validation of tool arguments (`400 tool_use_failed`) now goes back to the model
+as a correction, and a turn that crashed no longer blocks its conversation.
