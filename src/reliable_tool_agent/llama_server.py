@@ -32,6 +32,17 @@ TOOL_ERROR_RETRIES = 2
 log = logging.getLogger(__name__)
 
 
+def without_reasoning(content: str | None) -> str | None:
+    """The answer without the model's private reasoning, if some leaked into it.
+
+    Qwen models reason between <think> tags; servers normally strip them, but the hosted
+    Qwen once returned "...reasoning... </think> answer" (experiment 06): only what
+    follows the last closing tag is meant for the customer."""
+    if content is None or "</think>" not in content:
+        return content
+    return content.rsplit("</think>", 1)[1].strip() or None
+
+
 class ModelUnavailableError(Exception):
     """The model server is out of quota or failing: not the request's fault, try later.
 
@@ -125,7 +136,7 @@ class LlamaServerModel:
 
         usage = body.get("usage")
         return AssistantTurn(
-            content=message.get("content"),
+            content=without_reasoning(message.get("content")),
             tool_calls=calls,
             usage={k: usage[k] for k in ("prompt_tokens", "completion_tokens") if k in usage}
             if usage

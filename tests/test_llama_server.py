@@ -206,3 +206,15 @@ async def test_a_wait_longer_than_allowed_fails_at_once_instead_of_sleeping():
         await model.complete(MESSAGES, [])
     assert raised.value.retry_after == 3600
     assert len(calls) == 1
+
+
+async def test_leaked_reasoning_is_cut_from_the_answer():
+    leaked = "No, refunds go to the original payment method. </think> No, back to your card."
+    model, _ = fake_server({"content": leaked})
+    turn = await model.complete(MESSAGES, TOOLS)
+    assert turn.content == "No, back to your card."
+
+
+async def test_an_answer_without_reasoning_is_left_alone():
+    model, _ = fake_server({"content": "Use <b>bold</b>, think about it."})
+    assert (await model.complete(MESSAGES, TOOLS)).content == "Use <b>bold</b>, think about it."
