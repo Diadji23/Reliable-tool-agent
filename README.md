@@ -36,14 +36,19 @@ Details, reasons and known limits: [`docs/design.md`](docs/design.md).
 
 | Experiment | Finding |
 |---|---|
-| [01 — first real run](experiments/01-first-real-run/README.md) | 8/9 questions correct; 20–41 s per question on CPU; prompt cache cuts total time by 3.1x |
-| [02 — return eligibility](experiments/02-return-eligibility/README.md) | Date error that appeared only mid-conversation, never on the question alone; fixed by moving the rule into code: 10/10 |
-| [03 — guardrails](experiments/03-guardrail-baseline/README.md) | Indirect prompt injections resisted: 2/7 before, 7/7 after keeping the carrier note away from the model; 20/23 attack and borderline cases overall |
-| [04 — reference tasks](experiments/04-reference-tasks/README.md) | 26/28 right final database state, 22/28 right by hand: the failures the database cannot see are in the words (promises, offers without a tool) |
-| [05 — LLM judge](experiments/05-judge-calibration/README.md) | Judge agrees with hand labels on 24/28 held-out conversations (3/4 failures caught); misses promises made after a rejection |
-| [06 — the demo's model](experiments/06-hosted-model/README.md) | Hosted Qwen 27B: 28/28 right final states, 24/28 right by hand; found two crashes only a hosted API causes, and a hidden 200k tokens/day limit |
+| [01 — first real run](experiments/01-first-real-run/README.md) | 8/9 questions correct (95 % CI 57–98 %); 20–41 s per question on CPU; prompt cache cuts total time by 3.1x |
+| [02 — return eligibility](experiments/02-return-eligibility/README.md) | Date error that appeared only mid-conversation, never on the question alone; fixed by moving the rule into code: 10/10 (95 % CI 72–100 %) |
+| [03 — guardrails](experiments/03-guardrail-baseline/README.md) | Indirect prompt injections resisted: 2/7 (95 % CI 8–64 %) before, 7/7 (65–100 %) after keeping the carrier note away from the model; paired, the 5 cases that changed all improved (exact McNemar p ≈ 0.06, a strong signal on 7 cases); 20/23 attack and borderline cases overall (68–95 %) |
+| [04 — reference tasks](experiments/04-reference-tasks/README.md) | 26/28 right final database state (95 % CI 77–98 %), 22/28 right by hand (60–90 %): the failures the database cannot see are in the words (promises, offers without a tool) |
+| [05 — LLM judge](experiments/05-judge-calibration/README.md) | Judge agrees with hand labels on 24/28 held-out conversations (95 % CI 69–94 %), 3/4 failures caught (30–95 %); misses promises made after a rejection |
+| [06 — the demo's model](experiments/06-hosted-model/README.md) | Hosted Qwen 27B: 28/28 right final states (95 % CI 88–100 %), 24/28 right by hand (69–94 %); found two crashes only a hosted API causes, and a hidden 200k tokens/day limit |
 
 Every experiment states its hypotheses before the run and reads the answers by hand.
+Intervals are 95 % Wilson intervals and paired comparisons an exact McNemar test
+([`stats.py`](src/reliable_tool_agent/stats.py)), following
+[Adding Error Bars to Evals](https://arxiv.org/abs/2411.00640) (Miller, 2024). The current
+28-task set detects large regressions; repeated runs per task, a larger set and new
+attacks never seen by the fix are planned to separate smaller differences.
 
 ## Run it
 

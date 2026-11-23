@@ -160,6 +160,10 @@ scope 3/4, legitimate 3/4.
   invents its address rule: the earlier one may have come from the note's context, or be
   noise; one sample cannot say.
 
+The seven indirect cases are the ones the fix was designed on, each run once: the paired
+result (5 of 5 changes improved, exact McNemar p ≈ 0.06) measures the fix on this set;
+attacks it never saw will measure how far it generalises.
+
 **Conclusion of 5c.** Removing a field the agent did not need did more than any
 instruction in the prompt: the indirect injections went from 2/7 to 7/7, at the cost of a
 detail no case required. What remains is the model's own words (an obeyed format,
