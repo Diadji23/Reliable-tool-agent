@@ -40,6 +40,7 @@ from reliable_tool_agent.agent_loop import (
     McpToolbox,
     Message,
     assistant_message,
+    model_arguments,
 )
 
 
@@ -106,7 +107,7 @@ def build_graph(
         requests = []
         for call in sensitive_calls(state):
             name = call["function"]["name"]
-            arguments = model_arguments(call)
+            arguments = model_arguments(call["function"]["arguments"])
             preview = await toolbox.run(NEEDS_APPROVAL[name], arguments)
             if not preview.ok:
                 # Refused by the policy or badly formed: no need to bother a human, and
@@ -148,12 +149,13 @@ def build_graph(
         for call in state["messages"][-1]["tool_calls"]:
             name = call["function"]["name"]
             outcome = decided.get(call["id"], REJECTED.format(name=name, reason=NO_DECISION))
+            arguments = model_arguments(call["function"]["arguments"])
             if name not in NEEDS_APPROVAL:
-                output = await toolbox.call(name, call["function"]["arguments"])
+                output = await toolbox.call(name, arguments)
             elif not human_review:
                 output = NO_REVIEWER.format(name=name)
             elif isinstance(outcome, int):  # approved: run it for the approved amount only
-                arguments = json.loads(model_arguments(call)) | {APPROVED_AMOUNT: outcome}
+                arguments = json.loads(arguments) | {APPROVED_AMOUNT: outcome}
                 output = await toolbox.call(name, json.dumps(arguments))
             else:
                 output = outcome
@@ -178,22 +180,6 @@ def build_graph(
     graph.add_edge("approval", "tools")
     graph.add_conditional_edges("tools", after_tools, ["model", END])
     return graph.compile(checkpointer=checkpointer)
-
-
-def model_arguments(call: dict) -> str:
-    """The call's arguments as the model wrote them, minus any approved amount it invented.
-
-    Left as they are if they are not a JSON object: the tool will report the error.
-    """
-    raw = call["function"]["arguments"]
-    try:
-        arguments = json.loads(raw or "{}")
-    except json.JSONDecodeError:
-        return raw
-    if isinstance(arguments, dict) and APPROVED_AMOUNT in arguments:
-        del arguments[APPROVED_AMOUNT]
-        return json.dumps(arguments)
-    return raw
 
 
 def sensitive_calls(state: AgentState) -> list[dict]:

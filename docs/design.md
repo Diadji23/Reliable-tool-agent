@@ -163,7 +163,10 @@ model --(refund_order call)--> approval --(pause: interrupt)--> reviewer decides
   time it runs). The decision therefore names the amount, the agent passes it to
   `refund_order`, and the tool compares it with the recomputed amount **in the same
   transaction as the insert**. If they differ, nothing is issued and the model is told to
-  ask again. The model never sees this argument; a value it sends is replaced.
+  ask again. The model never sees this argument; a value it sends is removed from every
+  call, not only from the ones that need approval. So even a sensitive tool forgotten in
+  the approval list cannot be run by the model alone: the argument stays missing and the
+  tool refuses (a test removes `refund_order` from the list and checks nothing is written).
 
 **Known limits** (for when the web API brings real reviewers): the refund does not record
 who approved it; a pending request never expires; while a thread waits for a decision,

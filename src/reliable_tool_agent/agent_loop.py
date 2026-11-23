@@ -121,6 +121,23 @@ def hide_approved_amount(schema: dict) -> dict:
     return shown
 
 
+def model_arguments(raw: str) -> str:
+    """The arguments as the model wrote them, minus any approved amount it sent.
+
+    Applied to every call, not only to the ones that need approval: only the approval may
+    fill this argument, even for a sensitive tool someone forgot in NEEDS_APPROVAL.
+    Left as they are if they are not a JSON object: the tool will report the error.
+    """
+    try:
+        arguments = json.loads(raw or "{}")
+    except json.JSONDecodeError:
+        return raw
+    if isinstance(arguments, dict) and APPROVED_AMOUNT in arguments:
+        del arguments[APPROVED_AMOUNT]
+        return json.dumps(arguments)
+    return raw
+
+
 @dataclass
 class ToolOutput:
     ok: bool
@@ -183,7 +200,7 @@ async def run_agent(
             if call.name in NEEDS_APPROVAL:  # this loop has no human to ask: never run it
                 output = NO_REVIEWER.format(name=call.name)
             else:
-                output = await toolbox.call(call.name, call.arguments)
+                output = await toolbox.call(call.name, model_arguments(call.arguments))
             # Tool output goes in a `tool` message, never in the system or user role:
             # it is data the model reads, not instructions it must follow.
             messages.append({"role": "tool", "tool_call_id": call.id, "content": output})

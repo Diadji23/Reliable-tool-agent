@@ -12,6 +12,7 @@ import sqlite3
 import pytest
 from mcp import Client
 
+from reliable_tool_agent import agent_loop
 from reliable_tool_agent.agent_graph import run_graph_agent
 from reliable_tool_agent.agent_loop import AssistantTurn, McpToolbox, ToolCall, run_agent
 from reliable_tool_agent.fake_model import ScriptedModel
@@ -176,4 +177,32 @@ async def test_sensitive_tool_is_never_run_without_a_reviewer(runner, writable_d
     (tool,) = tool_messages(result)
     assert "needs a human reviewer's approval" in tool["content"]
     assert result.stop_reason == "answer"  # the model was told, and could answer
+    assert refund_count(writable_db) == before
+
+
+async def test_an_approved_amount_from_the_model_never_reaches_a_tool(
+    runner, writable_db, monkeypatch
+):
+    """Second barrier, kept even if refund_order is forgotten in NEEDS_APPROVAL.
+
+    Without the approval, refund_order still needs approved_amount_cents, which only the
+    approval fills. A model that learns the name (from an error message, or a customer)
+    and sends it itself must not get a refund written.
+    """
+    monkeypatch.delitem(agent_loop.NEEDS_APPROVAL, "refund_order")
+    refund = json.dumps(
+        {
+            "order_id": "O10040",
+            "product_id": "P010",
+            "quantity": 1,
+            "condition": "defective_or_wrong",
+            "approved_amount_cents": 5090,
+        }
+    )
+    before = refund_count(writable_db)
+    result, _ = await run(
+        runner, writable_db, "C0021", [call("refund_order", refund), AssistantTurn("Done.")]
+    )
+    (tool,) = tool_messages(result)
+    assert "approved_amount_cents" in tool["content"]  # refused as missing
     assert refund_count(writable_db) == before
