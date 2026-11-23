@@ -47,8 +47,8 @@ Every experiment states its hypotheses before the run and reads the answers by h
 Intervals are 95 % Wilson intervals and paired comparisons an exact McNemar test
 ([`stats.py`](src/reliable_tool_agent/stats.py)), following
 [Adding Error Bars to Evals](https://arxiv.org/abs/2411.00640) (Miller, 2024). The current
-28-task set detects large regressions; repeated runs per task, a larger set and new
-attacks never seen by the fix are planned to separate smaller differences.
+28-task set detects large regressions; repeated runs per task (experiment 07) are
+planned to separate smaller differences.
 
 ## Run it
 
