@@ -93,6 +93,9 @@ class OrderSummary(BaseModel):
     id: str
     status: OrderStatus
     ordered_at: date
+    # Given with the order date so the model does not present one as the other: with
+    # ordered_at alone it called it the delivery date (lab session, 2026-11-21).
+    delivered_at: date | None
     total_cents: int
     n_items: int
 
@@ -102,7 +105,8 @@ def list_my_orders(session: Session, status: OrderStatus | None = None) -> list[
     with connect_readonly(session.db_path) as conn:
         rows = conn.execute(
             """
-            SELECT o.id, o.status, o.ordered_at, o.total_cents, SUM(i.quantity) AS n_items
+            SELECT o.id, o.status, o.ordered_at, o.delivered_at, o.total_cents,
+                   SUM(i.quantity) AS n_items
             FROM orders o JOIN order_items i ON i.order_id = o.id
             WHERE o.customer_id = ? AND (? IS NULL OR o.status = ?)
             GROUP BY o.id ORDER BY o.ordered_at DESC, o.id DESC

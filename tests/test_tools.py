@@ -97,6 +97,16 @@ def test_list_my_orders_status_filter(shop_db):
     assert len(delivered) < len(everything)
 
 
+def test_list_my_orders_gives_the_delivery_date(shop_db):
+    """Without it the model called the order date a delivery date (lab, 2026-11-21)."""
+    conn = sqlite3.connect(shop_db)
+    expected = dict(conn.execute("SELECT id, delivered_at FROM orders WHERE customer_id = 'C0094'"))
+    orders = list_my_orders(Session("C0094", shop_db))
+    assert {o.id: o.delivered_at and o.delivered_at.isoformat() for o in orders} == expected
+    assert any(o.status == "delivered" and o.delivered_at for o in orders)
+    assert all(o.delivered_at is None for o in orders if o.status != "delivered")
+
+
 # --- search_policies ------------------------------------------------------------------
 
 

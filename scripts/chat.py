@@ -160,8 +160,9 @@ def review(pending: list[dict]) -> dict[str, dict]:
 
 def show_orders(session: tools.Session) -> None:
     for o in tools.list_my_orders(session):
+        delivered = f"delivered {o.delivered_at}" if o.delivered_at else " " * 20
         print(
-            f"{GREY}  {o.id}  {o.status:<10} ordered {o.ordered_at}  "
+            f"{GREY}  {o.id}  {o.status:<10} ordered {o.ordered_at}  {delivered}  "
             f"{euros(o.total_cents)}  {o.n_items} item(s){RESET}"
         )
 

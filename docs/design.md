@@ -37,7 +37,7 @@ use them.
 | Tool | Arguments | Returns |
 |---|---|---|
 | `get_order` | `order_id` | status, dates, items and amounts (integer cents) |
-| `list_my_orders` | `status` (optional, one of 4 values) | the customer's orders, newest first |
+| `list_my_orders` | `status` (optional, one of 4 values) | the customer's orders, newest first, with order and delivery dates |
 | `search_policies` | `query` | up to 3 numbered policy rules, or an empty list |
 | `check_return_eligibility` | `order_id` | per item: returnable or not, returnable if defective or wrong, the reason, the last day of the window |
 | `quote_refund` | `order_id`, `product_id`, `quantity`, `condition` | the refund the policy allows (item, shipping, total), without issuing it |
